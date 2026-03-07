@@ -10,21 +10,54 @@ const {
 // @route   GET /api/users/search?q=query
 const searchUsers = async (req, res) => {
     try {
-        const keyword = req.query.q
-            ? {
-                $or: [
-                    { username: { $regex: req.query.q, $options: "i" } },
-                    { email: { $regex: req.query.q, $options: "i" } },
-                ],
-                _id: { $ne: req.user._id },
-            }
-            : { _id: { $ne: req.user._id } };
+        const query = req.query.q;
+        if (!query) {
+            return res.json([]);
+        }
+
+        const keyword = {
+            $or: [
+                { username: { $regex: query, $options: "i" } },
+                { email: { $regex: query, $options: "i" } },
+            ],
+            _id: { $ne: req.user._id },
+        };
 
         const users = await User.find(keyword)
-            .select("username email profilePic about isOnline lastSeen")
+            .select("username email profilePic about isOnline lastSeen friends friendRequests")
             .limit(20);
 
-        res.json(users);
+        const currentUser = await User.findById(req.user._id).select("friends friendRequests");
+
+        const results = users.map((u) => {
+            let relationship = "none";
+
+            // Check if friends
+            if (currentUser.friends.some(id => id.toString() === u._id.toString())) {
+                relationship = "friends";
+            }
+            // Check if we sent them a request
+            else if (u.friendRequests.some(r => r.from.toString() === req.user._id.toString() && r.status === "pending")) {
+                relationship = "request_sent";
+            }
+            // Check if they sent us a request
+            else if (currentUser.friendRequests.some(r => r.from.toString() === u._id.toString() && r.status === "pending")) {
+                relationship = "request_received";
+            }
+
+            return {
+                _id: u._id,
+                username: u.username,
+                email: u.email,
+                profilePic: u.profilePic,
+                about: u.about,
+                isOnline: u.isOnline,
+                lastSeen: u.lastSeen,
+                relationship
+            };
+        });
+
+        res.json(results);
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
@@ -34,28 +67,59 @@ const searchUsers = async (req, res) => {
 // @route   POST /api/users/friend-request/:userId
 const sendFriendRequest = async (req, res) => {
     try {
-        const targetUser = await User.findById(req.params.userId);
+        const targetUserId = req.params.userId;
+        const targetUser = await User.findById(targetUserId);
+
         if (!targetUser) {
             return res.status(404).json({ message: "User not found" });
         }
 
+        if (targetUserId === req.user._id.toString()) {
+            return res.status(400).json({ message: "You cannot add yourself" });
+        }
+
         // Check if already friends
-        if (req.user.friends.includes(req.params.userId)) {
+        if (req.user.friends.some(id => id.toString() === targetUserId)) {
             return res.status(400).json({ message: "Already friends" });
         }
 
-        // Check if request already sent
-        const existingRequest = targetUser.friendRequests.find(
-            (r) => r.from.toString() === req.user._id.toString() && r.status === "pending"
+        // Check if target has already sent us a request
+        const currentUser = await User.findById(req.user._id);
+        const incomingRequest = currentUser.friendRequests.find(
+            (r) => r.from.toString() === targetUserId && r.status === "pending"
         );
-        if (existingRequest) {
-            return res.status(400).json({ message: "Request already sent" });
+
+        if (incomingRequest) {
+            // Already sent us a request, just accept it
+            incomingRequest.status = "accepted";
+            currentUser.friends.push(targetUserId);
+
+            targetUser.friends.push(req.user._id);
+            await currentUser.save();
+            await targetUser.save();
+
+            return res.json({ message: "Request already received, you are now friends!", status: "accepted" });
         }
 
-        targetUser.friendRequests.push({ from: req.user._id });
-        await targetUser.save();
+        // Check if already sent
+        const existingRequestIndex = targetUser.friendRequests.findIndex(
+            (r) => r.from.toString() === req.user._id.toString()
+        );
 
-        res.json({ message: "Friend request sent" });
+        if (existingRequestIndex !== -1) {
+            const reqStatus = targetUser.friendRequests[existingRequestIndex].status;
+            if (reqStatus === "pending") {
+                return res.status(400).json({ message: "Friend request already pending" });
+            }
+            // Reset to pending if rejected before
+            targetUser.friendRequests[existingRequestIndex].status = "pending";
+            targetUser.friendRequests[existingRequestIndex].createdAt = Date.now();
+        } else {
+            targetUser.friendRequests.push({ from: req.user._id });
+        }
+
+        await targetUser.save();
+        res.json({ message: "Friend request sent", status: "pending" });
     } catch (error) {
         res.status(500).json({ message: error.message });
     }

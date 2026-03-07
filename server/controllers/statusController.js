@@ -128,10 +128,55 @@ const deleteStatus = async (req, res) => {
     }
 };
 
+// @desc    Create a media status (image/video)
+// @route   POST /api/status/media
+const createMediaStatus = async (req, res) => {
+    try {
+        const { isCloudinaryConfigured, uploadStatusMedia } = require("../utils/cloudinary");
+
+        if (!isCloudinaryConfigured()) {
+            return res.status(400).json({ message: "Cloudinary not configured" });
+        }
+
+        if (!req.file) {
+            return res.status(400).json({ message: "No media file provided" });
+        }
+
+        const isVideo = req.file.mimetype.startsWith("video/");
+        const resourceType = isVideo ? "video" : "image";
+        const statusType = isVideo ? "video" : "image";
+
+        const result = await uploadStatusMedia(
+            req.file.buffer,
+            req.user._id,
+            resourceType
+        );
+
+        const status = await Status.create({
+            user: req.user._id,
+            content: req.body.caption || "",
+            type: statusType,
+            mediaUrl: result.secure_url,
+            backgroundColor: "#000000",
+        });
+
+        const populatedStatus = await status.populate(
+            "user",
+            "username profilePic"
+        );
+        await populatedStatus.populate("viewedBy", "username profilePic");
+
+        res.status(201).json(populatedStatus);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
 module.exports = {
     createStatus,
     getStatuses,
     viewStatus,
     getMyStatuses,
     deleteStatus,
+    createMediaStatus,
 };

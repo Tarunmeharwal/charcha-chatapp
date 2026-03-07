@@ -1,5 +1,6 @@
 const Chat = require("../models/Chat");
 const User = require("../models/User");
+const Message = require("../models/Message");
 
 // @desc    Create or access a 1-on-1 chat
 // @route   POST /api/chats
@@ -105,4 +106,52 @@ const createGroupChat = async (req, res) => {
     }
 };
 
-module.exports = { accessChat, getChats, createGroupChat };
+// @desc    Clear all messages in a chat
+// @route   DELETE /api/chats/:chatId/clear
+const clearChat = async (req, res) => {
+    try {
+        const chat = await Chat.findById(req.params.chatId);
+        if (!chat) {
+            return res.status(404).json({ message: "Chat not found" });
+        }
+
+        // Only participants can clear the chat
+        if (!chat.users.some(u => u.toString() === req.user._id.toString())) {
+            return res.status(403).json({ message: "Not authorized" });
+        }
+
+        await Message.deleteMany({ chat: chat._id });
+        chat.latestMessage = undefined;
+        await chat.save();
+
+        res.json({ message: "Chat cleared successfully" });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+// @desc    Delete a chat (removes the chat document and all messages)
+// @route   DELETE /api/chats/:chatId
+const deleteChat = async (req, res) => {
+    try {
+        const chat = await Chat.findById(req.params.chatId);
+        if (!chat) {
+            return res.status(404).json({ message: "Chat not found" });
+        }
+
+        if (!chat.users.some(u => u.toString() === req.user._id.toString())) {
+            return res.status(403).json({ message: "Not authorized" });
+        }
+
+        // Delete all messages in the chat
+        await Message.deleteMany({ chat: chat._id });
+        // Delete the chat itself
+        await chat.deleteOne();
+
+        res.json({ message: "Chat deleted successfully" });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+module.exports = { accessChat, getChats, createGroupChat, clearChat, deleteChat };

@@ -50,7 +50,25 @@ const socketHandler = (io) => {
         // Message updated (reaction/unsend)
         socket.on("message_updated", ({ chatId, message }) => {
             if (!chatId || !message) return;
+
+            // Broadcast to the chat room
             socket.in(chatId).emit("message_updated", message);
+
+            // Also broadcast to users' private rooms if chat users are known (for sidebar updates)
+            if (message.chat && message.chat.users) {
+                message.chat.users.forEach((user) => {
+                    const userId = typeof user === "object" ? user._id : user;
+                    if (userId.toString() !== socket.userId?.toString()) {
+                        socket.in(userId.toString()).emit("message_updated", message);
+                    }
+                });
+            }
+        });
+
+        // Message deleted (Unsend)
+        socket.on("message_deleted", ({ chatId, messageId }) => {
+            if (!chatId || !messageId) return;
+            socket.in(chatId).emit("message_deleted", { chatId, messageId });
         });
 
         // Typing indicator
@@ -83,16 +101,17 @@ const socketHandler = (io) => {
             if (socket.userId) {
                 onlineUsers.delete(socket.userId);
 
+                const lastSeen = new Date();
                 try {
                     await User.findByIdAndUpdate(socket.userId, {
                         isOnline: false,
-                        lastSeen: new Date(),
+                        lastSeen: lastSeen,
                     });
                 } catch (err) {
                     console.error("Error updating offline status:", err);
                 }
 
-                io.emit("user_offline", socket.userId);
+                io.emit("user_offline", { userId: socket.userId, lastSeen });
             }
         });
     });

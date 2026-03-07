@@ -3,6 +3,9 @@ const http = require("http");
 const { Server } = require("socket.io");
 const cors = require("cors");
 const dotenv = require("dotenv");
+const cookieParser = require("cookie-parser");
+const helmet = require("helmet");
+const rateLimit = require("express-rate-limit");
 const connectDB = require("./config/db");
 const socketHandler = require("./socket/socketHandler");
 
@@ -15,6 +18,11 @@ connectDB();
 const app = express();
 const server = http.createServer(app);
 
+// Production security settings
+if (process.env.NODE_ENV === "production") {
+    app.set("trust proxy", 1);
+}
+
 // Socket.io setup
 const io = new Server(server, {
     pingTimeout: 60000,
@@ -24,13 +32,34 @@ const io = new Server(server, {
     },
 });
 
-// Middleware
+// Helmet for security headers
+app.use(helmet({
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+    contentSecurityPolicy: false,
+}));
+
+app.use(cookieParser());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// Rate limiting strictly for Auth
+const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 20,
+    message: { message: "Too many attempts from this IP, please try again after 15 minutes" },
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+
+// Apply rate limiter
+app.use("/api/auth/login", authLimiter);
+app.use("/api/auth/signup", authLimiter);
+
+// CORS setup
 app.use(cors({
     origin: process.env.CLIENT_URL || "http://localhost:3000",
     credentials: true,
 }));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 
 // API Routes
 app.use("/api/auth", require("./routes/authRoutes"));

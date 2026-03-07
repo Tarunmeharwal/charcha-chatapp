@@ -15,18 +15,21 @@ const signup = async (req, res) => {
             return res.status(400).json({ message: "Please fill all fields" });
         }
 
-        // Check if user already exists
         const userExists = await User.findOne({ $or: [{ email }, { username }] });
         if (userExists) {
             const field = userExists.email === email.toLowerCase() ? "Email" : "Username";
             return res.status(400).json({ message: `${field} already taken` });
         }
 
-        console.log("➡️ Signup hit:", { username, email });
         const user = await User.create({ username, email, password });
-        console.log("✅ User created success:", user._id);
-
         const token = generateToken(user._id);
+
+        res.cookie("charcha_token", token, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === "production",
+            sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+            maxAge: 30 * 24 * 60 * 60 * 1000,
+        });
 
         res.status(201).json({
             _id: user._id,
@@ -35,7 +38,7 @@ const signup = async (req, res) => {
             profilePic: user.profilePic,
             profilePicPublicId: user.profilePicPublicId,
             about: user.about,
-            token,
+            token, // Keep sending token for backward compatibility if needed
         });
     } catch (error) {
         res.status(500).json({ message: error.message });
@@ -55,9 +58,17 @@ const login = async (req, res) => {
         const user = await User.findOne({ email: email.toLowerCase() });
 
         if (user && (await user.matchPassword(password))) {
-            // Set user online
             user.isOnline = true;
             await user.save();
+
+            const token = generateToken(user._id);
+
+            res.cookie("charcha_token", token, {
+                httpOnly: true,
+                secure: process.env.NODE_ENV === "production",
+                sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+                maxAge: 30 * 24 * 60 * 60 * 1000,
+            });
 
             res.json({
                 _id: user._id,
@@ -66,7 +77,7 @@ const login = async (req, res) => {
                 profilePic: user.profilePic,
                 profilePicPublicId: user.profilePicPublicId,
                 about: user.about,
-                token: generateToken(user._id),
+                token,
             });
         } else {
             res.status(401).json({ message: "Invalid email or password" });
@@ -89,4 +100,42 @@ const getMe = async (req, res) => {
     }
 };
 
-module.exports = { signup, login, getMe };
+// @desc    Logout user
+// @route   POST /api/auth/logout
+const logout = async (req, res) => {
+    try {
+        if (req.user) {
+            const user = await User.findById(req.user._id);
+            if (user) {
+                user.isOnline = false;
+                await user.save();
+            }
+        }
+        res.cookie("charcha_token", "", {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === "production",
+            sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+            expires: new Date(0),
+        });
+        res.status(200).json({ message: "Logged out successfully" });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+// @desc    Check if username is available
+// @route   GET /api/auth/check-username/:username
+const checkUsername = async (req, res) => {
+    try {
+        const username = req.params.username.toLowerCase();
+        const user = await User.findOne({ username });
+        if (user) {
+            return res.status(200).json({ available: false, message: "Username already taken" });
+        }
+        res.status(200).json({ available: true, message: "Username is available" });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+module.exports = { signup, login, getMe, logout, checkUsername };

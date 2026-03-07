@@ -78,8 +78,33 @@ export function ChatProvider({ children }) {
             setOnlineUsers((prev) => [...new Set([...prev, userId])]);
         });
 
-        socket.on("user_offline", (userId) => {
-            setOnlineUsers((prev) => prev.filter((id) => id !== userId));
+        socket.on("user_offline", ({ userId, lastSeen }) => {
+            const uid = typeof userId === "object" ? userId.userId : userId;
+            setOnlineUsers((prev) => prev.filter((id) => id !== uid));
+
+            // Update lastSeen in chat list and selected chat
+            const updateLastSeen = (prevChats) =>
+                prevChats.map((chat) => {
+                    const partnerIdx = chat.users.findIndex((u) => u._id === uid);
+                    if (partnerIdx !== -1) {
+                        const newUsers = [...chat.users];
+                        newUsers[partnerIdx] = { ...newUsers[partnerIdx], lastSeen };
+                        return { ...chat, users: newUsers };
+                    }
+                    return chat;
+                });
+
+            setChats(updateLastSeen);
+            setSelectedChat((current) => {
+                if (!current) return null;
+                const partnerIdx = current.users.findIndex((u) => u._id === uid);
+                if (partnerIdx !== -1) {
+                    const newUsers = [...current.users];
+                    newUsers[partnerIdx] = { ...newUsers[partnerIdx], lastSeen };
+                    return { ...current, users: newUsers };
+                }
+                return current;
+            });
         });
 
         // Real-time message
@@ -89,13 +114,11 @@ export function ChatProvider({ children }) {
                 if (currentChat && currentChat._id === newMessage.chat._id) {
                     setMessages((prev) => dedupeMessages([...prev, newMessage]));
                 } else {
-                    // Add notification
+                    // Add notification — keep all to show count
                     setNotifications((prev) => {
-                        const existing = prev.find((n) => n.chat._id === newMessage.chat._id);
-                        if (!existing) {
-                            return [newMessage, ...prev];
-                        }
-                        return prev;
+                        // Prevent duplicates by message ID
+                        if (prev.some((n) => n._id === newMessage._id)) return prev;
+                        return [newMessage, ...prev];
                     });
                 }
                 return currentChat;
@@ -137,6 +160,11 @@ export function ChatProvider({ children }) {
             );
         });
 
+        socket.on("message_deleted", ({ chatId, messageId }) => {
+            setMessages((prev) => prev.filter((msg) => msg._id !== messageId));
+            fetchChats(); // Refresh to get new latestMessage if needed
+        });
+
         // Typing indicators
         socket.on("typing", ({ chatId, userId }) => {
             setTypingUsers((prev) => ({ ...prev, [chatId]: userId }));
@@ -161,6 +189,7 @@ export function ChatProvider({ children }) {
             socket.off("user_offline");
             socket.off("message_received");
             socket.off("message_updated");
+            socket.off("message_deleted");
             socket.off("typing");
             socket.off("stop_typing");
             socket.off("friend_request_accepted");

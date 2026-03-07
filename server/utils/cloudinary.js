@@ -74,10 +74,39 @@ const deleteFromCloudinary = async (publicId) => {
     });
 };
 
+const uploadStatusMedia = (fileBuffer, userId, resourceType = "image") => {
+    const publicId = `charcha/status/${userId}_${Date.now()}`;
+
+    return new Promise((resolve, reject) => {
+        const uploadStream = cloudinary.uploader.upload_stream(
+            {
+                public_id: publicId,
+                resource_type: resourceType,
+                transformation: resourceType === "image" ? [
+                    {
+                        width: 1080,
+                        height: 1920,
+                        crop: "limit",
+                        quality: "auto:eco",
+                        fetch_format: "auto",
+                    },
+                ] : undefined,
+            },
+            (error, result) => {
+                if (error) return reject(error);
+                return resolve(result);
+            }
+        );
+
+        uploadStream.end(fileBuffer);
+    });
+};
+
 module.exports = {
     cloudinary,
     isCloudinaryConfigured,
     buildOptimizedCloudinaryUrl,
     uploadAvatarToCloudinary,
     deleteFromCloudinary,
+    uploadStatusMedia,
 };

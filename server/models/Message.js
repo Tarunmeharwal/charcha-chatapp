@@ -12,7 +12,7 @@ const messageSchema = new mongoose.Schema(
         content: {
             type: String,
             trim: true,
-            required: true,
+            required: false, // Changed from true to allow unsent messages to clear content
         },
         chat: {
             type: mongoose.Schema.Types.ObjectId,
@@ -30,9 +30,15 @@ const messageSchema = new mongoose.Schema(
                 ref: "User",
             },
         ],
+        deletedBy: [
+            {
+                type: mongoose.Schema.Types.ObjectId,
+                ref: "User",
+            },
+        ],
         messageType: {
             type: String,
-            enum: ["text", "image", "file"],
+            enum: ["text", "image", "video", "file"],
             default: "text",
         },
         reactions: [
