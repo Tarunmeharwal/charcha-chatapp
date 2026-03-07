@@ -2,18 +2,20 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { useChat } from "@/context/ChatContext";
-import { accessChatAPI } from "@/lib/api";
+import { accessChatAPI, clearChatAPI, deleteChatAPI } from "@/lib/api";
 import { getSocket } from "@/lib/socket";
 import SearchPanel from "./SearchPanel";
 import FriendRequestsPanel from "./FriendRequestsPanel";
 import ProfilePanel from "./ProfilePanel";
 import StatusList from "./StatusList";
+import CreateGroupPanel from "./CreateGroupPanel";
 import { getAvatarSrc } from "@/lib/avatar";
 
 export default function Sidebar() {
     const { user, logout } = useAuth();
     const {
         chats,
+        fetchChats,
         selectedChat,
         setSelectedChat,
         fetchMessages,
@@ -29,8 +31,10 @@ export default function Sidebar() {
     const [showSearch, setShowSearch] = useState(false);
     const [showRequests, setShowRequests] = useState(false);
     const [showProfile, setShowProfile] = useState(false);
+    const [showCreateGroup, setShowCreateGroup] = useState(false);
     const [showMenu, setShowMenu] = useState(false);
     const [liveFriendRequests, setLiveFriendRequests] = useState([]);
+    const [openChatItemMenu, setOpenChatItemMenu] = useState(null);
 
     const pendingFriendRequests =
         user?.friendRequests?.filter((request) => request.status === "pending") || [];
@@ -47,7 +51,6 @@ export default function Sidebar() {
         const socket = getSocket();
         socket.on("new_friend_request", (sender) => {
             setLiveFriendRequests((prev) => {
-                // Check if already in list to avoid duplicates
                 if (prev.some((request) => request.from?._id === sender._id)) return prev;
                 return [
                     { from: sender, status: "pending", _id: Date.now().toString() },
@@ -60,6 +63,48 @@ export default function Sidebar() {
             socket.off("new_friend_request");
         };
     }, []);
+
+    useEffect(() => {
+        const handleClickOutside = (e) => {
+            if (!e.target.closest(".chat-item-menu") && !e.target.closest(".chat-item-arrow")) {
+                setOpenChatItemMenu(null);
+            }
+        };
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, []);
+
+    const handleClearChat = async (e, chatId) => {
+        e.stopPropagation();
+        if (confirm("Clear all messages in this chat?")) {
+            try {
+                await clearChatAPI(chatId);
+                if (selectedChat?._id === chatId) {
+                    setSelectedChat(null);
+                }
+                fetchChats();
+                setOpenChatItemMenu(null);
+            } catch (error) {
+                console.error("Error clearing chat:", error);
+            }
+        }
+    };
+
+    const handleDeleteChat = async (e, chatId) => {
+        e.stopPropagation();
+        if (confirm("Delete this chat permanently?")) {
+            try {
+                await deleteChatAPI(chatId);
+                if (selectedChat?._id === chatId) {
+                    setSelectedChat(null);
+                }
+                fetchChats();
+                setOpenChatItemMenu(null);
+            } catch (error) {
+                console.error("Error deleting chat:", error);
+            }
+        }
+    };
 
     const handleSelectChat = async (chat) => {
         setSelectedChat(chat);
@@ -96,14 +141,19 @@ export default function Sidebar() {
     const getLastMessage = (chat) => {
         if (!chat.latestMessage) return "No messages yet";
         const msg = chat.latestMessage;
-        if (msg.isUnsent) {
-            return msg.sender?._id === user?._id
-                ? "You unsent a message"
-                : `${msg.sender?.username}: message was unsent`;
-        }
-        const senderName =
-            msg.sender?._id === user?._id ? "You" : msg.sender?.username;
-        return `${senderName}: ${msg.content}`;
+
+        const senderName = msg.sender?._id === user?._id ? "You" : (msg.sender?.username || "Someone");
+
+        // Defensive check: if it's a media link but type is 'text' or missing
+        const isCloudinary = msg.content && typeof msg.content === 'string' && msg.content.includes("cloudinary.com");
+        const type = msg.messageType || (isCloudinary ? (msg.content.includes("/video/") ? "video" : "image") : "text");
+
+        let label = msg.content;
+        if (type === "image") label = "📷 Photo";
+        else if (type === "video") label = "🎥 Video";
+        else if (type === "file") label = "📄 File";
+
+        return `${senderName}: ${label}`;
     };
 
     const isOnline = (chat) => {
@@ -112,8 +162,8 @@ export default function Sidebar() {
         return partner ? onlineUsers.includes(partner._id) : false;
     };
 
-    const hasNotification = (chatId) => {
-        return notifications.some((n) => n.chat._id === chatId);
+    const getNotificationCount = (chatId) => {
+        return notifications.filter((n) => n.chat._id === chatId).length;
     };
 
     const filteredChats = chats.filter((chat) => {
@@ -198,6 +248,17 @@ export default function Sidebar() {
                                     className="logout-btn"
                                     onClick={() => {
                                         setShowMenu(false);
+                                        setShowCreateGroup(true);
+                                    }}
+                                    style={{ borderRadius: "var(--radius-sm)" }}
+                                >
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
+                                    New Group
+                                </button>
+                                <button
+                                    className="logout-btn"
+                                    onClick={() => {
+                                        setShowMenu(false);
                                         logout();
                                     }}
                                     style={{ borderRadius: "var(--radius-sm)", color: "var(--danger)" }}
@@ -252,47 +313,70 @@ export default function Sidebar() {
                             <p>Search for friends to start chatting!</p>
                         </div>
                     ) : (
-                        filteredChats.map((chat) => (
-                            <div
-                                key={chat._id}
-                                className={`chat-item ${selectedChat?._id === chat._id ? "active" : ""}`}
-                                onClick={() => handleSelectChat(chat)}
-                            >
-                                <div className="chat-avatar">
-                                    <img
-                                        src={
-                                            chat.isGroupChat
-                                                ? getAvatarSrc(getChatName(chat))
-                                                : getAvatarSrc(getChatPartner(chat))
-                                        }
-                                        alt={`${getChatName(chat)} avatar`}
-                                        loading="lazy"
-                                        referrerPolicy="no-referrer"
-                                    />
-                                    {isOnline(chat) && <span className="online-dot"></span>}
-                                </div>
-                                <div className="chat-info">
-                                    <div className="chat-info-top">
-                                        <h4>{getChatName(chat)}</h4>
-                                        <span className="chat-time">
-                                            {formatTime(
-                                                chat.latestMessage?.createdAt || chat.updatedAt
-                                            )}
-                                        </span>
+                        filteredChats.map((chat) => {
+                            const unreadCount = getNotificationCount(chat._id);
+                            return (
+                                <div
+                                    key={chat._id}
+                                    className={`chat-item ${selectedChat?._id === chat._id ? "active" : ""}`}
+                                    onClick={() => handleSelectChat(chat)}
+                                >
+                                    <div className="chat-avatar">
+                                        <img
+                                            src={
+                                                chat.isGroupChat
+                                                    ? getAvatarSrc(getChatName(chat))
+                                                    : getAvatarSrc(getChatPartner(chat))
+                                            }
+                                            alt={`${getChatName(chat)} avatar`}
+                                            loading="lazy"
+                                            referrerPolicy="no-referrer"
+                                        />
+                                        {isOnline(chat) && <span className="online-dot"></span>}
                                     </div>
-                                    <div className="chat-info-bottom">
-                                        <p>
-                                            {typingUsers[chat._id]
-                                                ? "typing..."
-                                                : getLastMessage(chat)}
-                                        </p>
-                                        {hasNotification(chat._id) && (
-                                            <span className="unread-badge">●</span>
+                                    <div className="chat-info">
+                                        <div className="chat-info-top">
+                                            <h4>{getChatName(chat)}</h4>
+                                            <span className={`chat-time ${unreadCount > 0 ? "unread" : ""}`}>
+                                                {formatTime(
+                                                    chat.latestMessage?.createdAt || chat.updatedAt
+                                                )}
+                                            </span>
+                                        </div>
+                                        <div className="chat-info-bottom">
+                                            <p style={unreadCount > 0 ? { fontWeight: 600, color: "var(--text-primary)" } : {}}>
+                                                {typingUsers[chat._id]
+                                                    ? "typing..."
+                                                    : getLastMessage(chat)}
+                                            </p>
+                                            <div className="chat-item-actions">
+                                                {unreadCount > 0 && <span className="notification-badge">{unreadCount}</span>}
+                                                <button
+                                                    className={`chat-item-arrow ${openChatItemMenu === chat._id ? "active" : ""}`}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setOpenChatItemMenu(openChatItemMenu === chat._id ? null : chat._id);
+                                                    }}
+                                                >
+                                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        {openChatItemMenu === chat._id && (
+                                            <div className="chat-item-menu" onClick={(e) => e.stopPropagation()}>
+                                                <button className="chat-menu-item" onClick={(e) => handleClearChat(e, chat._id)}>
+                                                    Clear Messages
+                                                </button>
+                                                <button className="chat-menu-item danger" onClick={(e) => handleDeleteChat(e, chat._id)}>
+                                                    Delete Chat
+                                                </button>
+                                            </div>
                                         )}
                                     </div>
                                 </div>
-                            </div>
-                        ))
+                            );
+                        })
                     )}
                 </div>
             ) : (
@@ -301,6 +385,7 @@ export default function Sidebar() {
 
             {/* Panels */}
             {showSearch && <SearchPanel onClose={() => setShowSearch(false)} />}
+            {showCreateGroup && <CreateGroupPanel onClose={() => setShowCreateGroup(false)} />}
             {showRequests && (
                 <FriendRequestsPanel
                     onClose={() => setShowRequests(false)}

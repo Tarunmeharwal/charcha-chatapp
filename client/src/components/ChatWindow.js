@@ -8,12 +8,15 @@ import {
     reactToMessageAPI,
     removeReactionAPI,
     unsendMessageAPI,
+    deleteForMeAPI,
+    clearChatAPI,
+    deleteChatAPI,
 } from "@/lib/api";
 import { getSocket } from "@/lib/socket";
 import EmojiPicker from "emoji-picker-react";
 import { getAvatarSrc } from "@/lib/avatar";
 
-const QUICK_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🙏", "🔥", "👏", "🎉", "😡", "😎", "💯"];
+const QUICK_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
 
 export default function ChatWindow({ isMobile }) {
     const { user } = useAuth();
@@ -26,6 +29,7 @@ export default function ChatWindow({ isMobile }) {
         onlineUsers,
         typingUsers,
         fetchMessages,
+        fetchChats,
         loadingMessages,
     } = useChat();
 
@@ -34,10 +38,19 @@ export default function ChatWindow({ isMobile }) {
     const [activeMessageMenu, setActiveMessageMenu] = useState(null);
     const [showEmojiPicker, setShowEmojiPicker] = useState(false);
     const [replyingTo, setReplyingTo] = useState(null);
+    const [showChatDropdown, setShowChatDropdown] = useState(false);
+    const [showDpViewer, setShowDpViewer] = useState(null);
+    const [selectedFile, setSelectedFile] = useState(null);
+    const [filePreview, setFilePreview] = useState(null);
+    const [uploadingMedia, setUploadingMedia] = useState(false);
+    const [activeEmojiPickerMsgId, setActiveEmojiPickerMsgId] = useState(null);
+    const socket = getSocket();
     const longPressTimer = useRef(null);
     const messagesEndRef = useRef(null);
     const typingTimeoutRef = useRef(null);
     const emojiPickerRef = useRef(null);
+    const dropdownRef = useRef(null);
+    const fileInputRef = useRef(null);
 
     // Auto-scroll to bottom
     useEffect(() => {
@@ -47,35 +60,41 @@ export default function ChatWindow({ isMobile }) {
     useEffect(() => {
         setActiveMessageMenu(null);
         setReplyingTo(null);
+        setShowChatDropdown(false);
+
+        if (selectedChat?._id) {
+            socket.emit("join_chat", selectedChat._id);
+            return () => {
+                socket.emit("leave_chat", selectedChat._id);
+            };
+        }
     }, [selectedChat?._id]);
 
-    // Close menu when clicking anywhere else
+    // Close menu/picker when clicking anywhere else
     useEffect(() => {
-        if (!activeMessageMenu) return;
-
         const handleClickOutside = (e) => {
-            if (!e.target.closest(".message-action-menu") && !e.target.closest(".message-action-btn")) {
+            // Message menu
+            if (activeMessageMenu && !e.target.closest(".message-action-menu") && !e.target.closest(".message-action-btn")) {
                 setActiveMessageMenu(null);
             }
-        };
-
-        document.addEventListener("mousedown", handleClickOutside);
-        return () => document.removeEventListener("mousedown", handleClickOutside);
-    }, [activeMessageMenu]);
-
-    // Close emoji picker when clicking anywhere else
-    useEffect(() => {
-        if (!showEmojiPicker) return;
-
-        const handleClickOutside = (e) => {
-            if (emojiPickerRef.current && !emojiPickerRef.current.contains(e.target) && !e.target.closest(".emoji-btn")) {
+            // Emoji pickers
+            if ((showEmojiPicker || activeEmojiPickerMsgId) &&
+                emojiPickerRef.current &&
+                !emojiPickerRef.current.contains(e.target) &&
+                !e.target.closest(".emoji-btn") &&
+                !e.target.closest(".plus-btn")) {
                 setShowEmojiPicker(false);
+                setActiveEmojiPickerMsgId(null);
+            }
+            // Chat dropdown
+            if (showChatDropdown && dropdownRef.current && !dropdownRef.current.contains(e.target) && !e.target.closest(".chat-header-actions")) {
+                setShowChatDropdown(false);
             }
         };
 
         document.addEventListener("mousedown", handleClickOutside);
         return () => document.removeEventListener("mousedown", handleClickOutside);
-    }, [showEmojiPicker]);
+    }, [activeMessageMenu, showEmojiPicker, activeEmojiPickerMsgId, showChatDropdown]);
 
     // Mark messages as read when opening chat
     useEffect(() => {
@@ -104,41 +123,86 @@ export default function ChatWindow({ isMobile }) {
 
         if (partner.lastSeen) {
             const date = new Date(partner.lastSeen);
+            const now = new Date();
+            const diffMs = now - date;
+            const diffMins = Math.floor(diffMs / 60000);
+            const diffHours = Math.floor(diffMs / 3600000);
+
+            if (diffMins < 1) return "last seen just now";
+            if (diffMins < 60) return `last seen ${diffMins}m ago`;
+            if (diffHours < 24) return `last seen ${diffHours}h ago`;
             return `last seen ${date.toLocaleDateString()} ${date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
         }
         return "offline";
     };
 
-    const handleSend = async () => {
-        if (!inputValue.trim() || !selectedChat) return;
+    const handleFileSelect = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
 
+        if (file.size > 50 * 1024 * 1024) {
+            alert("File size exceeds 50MB");
+            return;
+        }
+
+        setSelectedFile(file);
+        if (file.type.startsWith("image/") || file.type.startsWith("video/")) {
+            const reader = new FileReader();
+            reader.onloadend = () => setFilePreview(reader.result);
+            reader.readAsDataURL(file);
+        } else {
+            setFilePreview(null);
+        }
+    };
+
+    const handleSend = async () => {
+        if ((!inputValue.trim() && !selectedFile) || !selectedChat) return;
+
+        const socket = getSocket();
         const messageContent = inputValue.trim();
         setInputValue("");
+        setShowEmojiPicker(false);
 
-        // Stop typing indicator
-        const socket = getSocket();
+        // Stop typing
+        setIsTyping(false);
         socket.emit("stop_typing", {
             chatId: selectedChat._id,
             userId: user._id,
         });
 
         try {
-            const data = await sendMessageAPI({
-                content: messageContent,
-                chatId: selectedChat._id,
-                replyTo: replyingTo?._id || null,
-            });
+            let data;
+            if (selectedFile) {
+                setUploadingMedia(true);
+                const formData = new FormData();
+                formData.append("media", selectedFile);
+                formData.append("chatId", selectedChat._id);
+                if (replyingTo) formData.append("replyTo", replyingTo._id);
+                if (messageContent) formData.append("caption", messageContent);
 
-            if (data._id) {
+                const { sendMediaMessageAPI } = await import("@/lib/api");
+                data = await sendMediaMessageAPI(formData);
+                setSelectedFile(null);
+                setFilePreview(null);
+                setUploadingMedia(false);
+            } else {
+                data = await sendMessageAPI({
+                    content: messageContent,
+                    chatId: selectedChat._id,
+                    replyTo: replyingTo?._id || null,
+                });
+            }
+
+            if (data?._id) {
                 setMessages((prev) =>
                     prev.some((msg) => msg._id === data._id) ? prev : [...prev, data]
                 );
                 setReplyingTo(null);
-                // Emit via socket
                 socket.emit("new_message", data);
             }
         } catch (error) {
             console.error("Error sending message:", error);
+            setUploadingMedia(false);
         }
     };
 
@@ -213,7 +277,12 @@ export default function ChatWindow({ isMobile }) {
     };
 
     const getMessageText = (message) => {
-        if (message.isUnsent) return "This message was unsent";
+        // Defensive check: if it's a media link but type is 'text'
+        const isCloudinary = message.content && typeof message.content === 'string' && message.content.includes("cloudinary.com");
+        if (isCloudinary && message.messageType === "text") {
+            return message.content.includes("/video/") ? "🎥 Video" : "📷 Photo";
+        }
+
         return message.content;
     };
 
@@ -236,6 +305,7 @@ export default function ChatWindow({ isMobile }) {
             console.error("Error reacting to message:", error);
         } finally {
             setActiveMessageMenu(null);
+            setActiveEmojiPickerMsgId(null);
         }
     };
 
@@ -268,23 +338,68 @@ export default function ChatWindow({ isMobile }) {
 
     const handleUnsendMessage = async (messageId) => {
         try {
-            const updatedMessage = await unsendMessageAPI(messageId);
-            if (updatedMessage?._id) {
-                setMessages((prev) =>
-                    prev.map((msg) =>
-                        msg._id === updatedMessage._id ? updatedMessage : msg
-                    )
-                );
+            const result = await unsendMessageAPI(messageId);
+            if (result?._id) {
+                setMessages((prev) => prev.filter((msg) => msg._id !== result._id));
                 const socket = getSocket();
-                socket.emit("message_updated", {
+                socket.emit("message_deleted", {
                     chatId: selectedChat._id,
-                    message: updatedMessage,
+                    messageId: result._id,
                 });
+                fetchChats(); // Update side panels
             }
         } catch (error) {
             console.error("Error unsending message:", error);
         } finally {
             setActiveMessageMenu(null);
+        }
+    };
+
+    const handleDeleteForMe = async (messageId) => {
+        try {
+            await deleteForMeAPI(messageId);
+            setMessages((prev) => prev.filter((msg) => msg._id !== messageId));
+        } catch (error) {
+            console.error("Error deleting message for me:", error);
+        } finally {
+            setActiveMessageMenu(null);
+        }
+    };
+
+    // ===== Chat dropdown menu handlers =====
+    const handleClearChat = async () => {
+        if (!selectedChat) return;
+        if (!confirm("Are you sure you want to clear all messages in this chat? This cannot be undone.")) return;
+
+        try {
+            await clearChatAPI(selectedChat._id);
+            setMessages([]);
+            setShowChatDropdown(false);
+            fetchChats();
+        } catch (error) {
+            console.error("Error clearing chat:", error);
+        }
+    };
+
+    const handleDeleteChat = async () => {
+        if (!selectedChat) return;
+        if (!confirm("Are you sure you want to delete this chat? All messages will be lost.")) return;
+
+        try {
+            await deleteChatAPI(selectedChat._id);
+            setSelectedChat(null);
+            setShowChatDropdown(false);
+            fetchChats();
+        } catch (error) {
+            console.error("Error deleting chat:", error);
+        }
+    };
+
+    const handleViewProfile = () => {
+        setShowChatDropdown(false);
+        const partner = getChatPartner(selectedChat);
+        if (partner) {
+            setShowDpViewer(getAvatarSrc(partner));
         }
     };
 
@@ -320,13 +435,11 @@ export default function ChatWindow({ isMobile }) {
 
     const getReplyPreviewText = (replyMessage) => {
         if (!replyMessage) return "Message unavailable";
-        if (replyMessage.isUnsent) return "This message was unsent";
         return replyMessage.content || "Media message";
     };
 
     const onEmojiClick = (emojiData) => {
         setInputValue((prev) => prev + emojiData.emoji);
-        // Do not close picker after click for better UX like WhatsApp
     };
 
     const handleMessagePressStart = (msgId) => {
@@ -369,38 +482,82 @@ export default function ChatWindow({ isMobile }) {
                         className="icon-btn back-mobile-btn"
                         onClick={() => setSelectedChat(null)}
                     >
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" /></svg>
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" /></svg>
                     </button>
                 )}
-                <div className="chat-avatar" style={{ width: 42, height: 42, fontSize: 18 }}>
+
+                <div
+                    className="chat-avatar"
+                    style={{ width: isMobile ? 38 : 42, height: isMobile ? 38 : 42, fontSize: isMobile ? 16 : 18, cursor: "pointer" }}
+                    onClick={() => {
+                        const partner = getChatPartner(selectedChat);
+                        if (partner) setShowDpViewer(getAvatarSrc(partner));
+                    }}
+                >
                     <img
                         src={
                             selectedChat.isGroupChat
                                 ? getAvatarSrc(getChatName())
                                 : getAvatarSrc(getChatPartner(selectedChat))
                         }
-                        alt={`${getChatName()} avatar`}
+                        alt="avatar"
                         loading="lazy"
-                        referrerPolicy="no-referrer"
                     />
                     {!selectedChat.isGroupChat &&
                         onlineUsers.includes(getChatPartner(selectedChat)?._id) && (
                             <span className="online-dot"></span>
                         )}
                 </div>
-                <div className="chat-header-info">
+
+                <div className="chat-header-info" style={{ cursor: "pointer" }}>
                     <h4>{getChatName()}</h4>
-                    <p style={{ color: getStatusText() === "online" || getStatusText() === "typing..." ? "var(--accent-green)" : undefined }}>
+                    <p className={
+                        getStatusText() === "online" || getStatusText() === "typing..."
+                            ? "online"
+                            : "last-seen"
+                    }>
                         {getStatusText()}
                     </p>
                 </div>
-                <div className="chat-header-actions">
-                    <button className="icon-btn">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
-                    </button>
-                    <button className="icon-btn">
+
+                <div className="chat-header-actions" ref={dropdownRef}>
+                    <button
+                        className="icon-btn"
+                        title="More options"
+                        onClick={() => setShowChatDropdown((prev) => !prev)}
+                    >
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="5" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="12" cy="19" r="1" /></svg>
                     </button>
+
+                    {showChatDropdown && (
+                        <div className="chat-dropdown-menu">
+                            {!selectedChat.isGroupChat && (
+                                <button className="chat-dropdown-item" onClick={handleViewProfile}>
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
+                                    View Profile
+                                </button>
+                            )}
+                            <button
+                                className="chat-dropdown-item"
+                                onClick={() => {
+                                    setShowChatDropdown(false);
+                                    setShowEmojiPicker(false);
+                                    setActiveMessageMenu(null);
+                                }}
+                            >
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
+                                Search in Chat
+                            </button>
+                            <button className="chat-dropdown-item" onClick={handleClearChat}>
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2v6m0 0l3-3m-3 3L9 5" /><path d="M5 12H2l3 3-3 3h3" /><path d="M19 12h3l-3 3 3 3h-3" /><path d="M12 22v-6m0 0l3 3m-3-3l-3 3" /></svg>
+                                Clear Chat
+                            </button>
+                            <button className="chat-dropdown-item danger" onClick={handleDeleteChat}>
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><line x1="10" y1="11" x2="10" y2="17" /><line x1="14" y1="11" x2="14" y2="17" /></svg>
+                                Delete Chat
+                            </button>
+                        </div>
+                    )}
                 </div>
             </div>
 
@@ -436,33 +593,18 @@ export default function ChatWindow({ isMobile }) {
                                         onMouseDown={() => handleMessagePressStart(msg._id)}
                                         onMouseUp={handleMessagePressEnd}
                                     >
-                                        {!isMobile && !msg.isUnsent && (
+                                        {!isMobile && (
                                             <button
-                                                className="message-action-btn"
+                                                className={`message-action-btn ${activeMessageMenu === msg._id ? "active" : ""}`}
                                                 onClick={() =>
                                                     setActiveMessageMenu((prev) =>
                                                         prev === msg._id ? null : msg._id
                                                     )
                                                 }
                                             >
-                                                ⋯
+                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
                                             </button>
                                         )}
-                                        <div
-                                            className={`message-text ${msg.isUnsent ? "unsent" : ""}`}
-                                        >
-                                            {msg.replyTo && (
-                                                <div className="message-reply-preview">
-                                                    <span className="message-reply-sender">
-                                                        {getDisplaySenderName(msg.replyTo.sender)}
-                                                    </span>
-                                                    <span className="message-reply-text">
-                                                        {getReplyPreviewText(msg.replyTo)}
-                                                    </span>
-                                                </div>
-                                            )}
-                                            {getMessageText(msg)}
-                                        </div>
                                         {getLatestReactionGroups(msg).length > 0 && (
                                             <div className="message-reactions">
                                                 {getLatestReactionGroups(msg).map((reaction) => (
@@ -470,15 +612,13 @@ export default function ChatWindow({ isMobile }) {
                                                         {reaction.emoji} {reaction.count}
                                                     </span>
                                                 ))}
-                                                {!msg.isUnsent && (
-                                                    <button
-                                                        className="message-reaction-add-btn"
-                                                        onClick={() => setActiveMessageMenu(msg._id)}
-                                                        title="Add reaction"
-                                                    >
-                                                        +
-                                                    </button>
-                                                )}
+                                                <button
+                                                    className="message-reaction-add-btn"
+                                                    onClick={() => setActiveMessageMenu(msg._id)}
+                                                    title="Add reaction"
+                                                >
+                                                    +
+                                                </button>
                                             </div>
                                         )}
                                         {activeMessageMenu === msg._id && (
@@ -486,40 +626,45 @@ export default function ChatWindow({ isMobile }) {
                                                 className={`message-action-menu ${index > messages.length - 4 ? "opens-up" : ""}`}
                                                 onMouseLeave={() => setActiveMessageMenu(null)}
                                             >
-                                                {!msg.isUnsent && (
-                                                    <div className="reaction-picker">
-                                                        {QUICK_EMOJIS.map((emoji) => (
-                                                            <button
-                                                                key={`${msg._id}-${emoji}`}
-                                                                className="reaction-btn"
-                                                                onClick={() =>
-                                                                    handleReaction(msg._id, emoji)
-                                                                }
-                                                            >
-                                                                {emoji}
-                                                            </button>
-                                                        ))}
-                                                    </div>
-                                                )}
-                                                {!msg.isUnsent && (
-                                                    <>
+                                                <div className="reaction-picker">
+                                                    {QUICK_EMOJIS.map((emoji) => (
                                                         <button
-                                                            className="message-menu-item"
-                                                            onClick={() => {
-                                                                setReplyingTo(msg);
-                                                                setActiveMessageMenu(null);
-                                                            }}
+                                                            key={`${msg._id}-${emoji}`}
+                                                            className="reaction-btn"
+                                                            onClick={() =>
+                                                                handleReaction(msg._id, emoji)
+                                                            }
                                                         >
-                                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="9 17 4 12 9 7" /><path d="M20 18v-2a4 4 0 0 0-4-4H4" /></svg>
-                                                            Reply
+                                                            {emoji}
                                                         </button>
-                                                        <button className="message-menu-item" onClick={() => handleCopyMessage(msg.content)}>
-                                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>
-                                                            Copy
-                                                        </button>
-                                                    </>
-                                                )}
-                                                {!msg.isUnsent && hasMyReaction(msg) && (
+                                                    ))}
+                                                    <button
+                                                        className="reaction-btn plus-btn"
+                                                        onClick={() => {
+                                                            setActiveEmojiPickerMsgId(msg._id);
+                                                        }}
+                                                        title="More reactions"
+                                                    >
+                                                        +
+                                                    </button>
+                                                </div>
+                                                <>
+                                                    <button
+                                                        className="message-menu-item"
+                                                        onClick={() => {
+                                                            setReplyingTo(msg);
+                                                            setActiveMessageMenu(null);
+                                                        }}
+                                                    >
+                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="9 17 4 12 9 7" /><path d="M20 18v-2a4 4 0 0 0-4-4H4" /></svg>
+                                                        Reply
+                                                    </button>
+                                                    <button className="message-menu-item" onClick={() => handleCopyMessage(msg.content)}>
+                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>
+                                                        Copy
+                                                    </button>
+                                                </>
+                                                {hasMyReaction(msg) && (
                                                     <button
                                                         className="message-menu-item"
                                                         onClick={() =>
@@ -530,26 +675,61 @@ export default function ChatWindow({ isMobile }) {
                                                         Remove my reaction
                                                     </button>
                                                 )}
-                                                {!msg.isUnsent && (
-                                                    <button className="message-menu-item">
-                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" /><line x1="12" y1="16" x2="12" y2="12" /><line x1="12" y1="8" x2="12.01" y2="8" /></svg>
-                                                        Message info
+                                                {msg.sender._id === user._id && (
+                                                    <button
+                                                        className="message-menu-item danger"
+                                                        onClick={() =>
+                                                            handleUnsendMessage(msg._id)
+                                                        }
+                                                    >
+                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><line x1="10" y1="11" x2="10" y2="17" /><line x1="14" y1="11" x2="14" y2="17" /></svg>
+                                                        Unsend message
                                                     </button>
                                                 )}
-                                                {!msg.isUnsent &&
-                                                    msg.sender._id === user._id && (
-                                                        <button
-                                                            className="message-menu-item danger"
-                                                            onClick={() =>
-                                                                handleUnsendMessage(msg._id)
-                                                            }
-                                                        >
-                                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><line x1="10" y1="11" x2="10" y2="17" /><line x1="14" y1="11" x2="14" y2="17" /></svg>
-                                                            Unsend message
-                                                        </button>
-                                                    )}
+                                                <button
+                                                    className="message-menu-item danger"
+                                                    onClick={() => handleDeleteForMe(msg._id)}
+                                                >
+                                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg>
+                                                    Delete for me
+                                                </button>
                                             </div>
                                         )}
+                                        {msg.replyTo && (
+                                            <div className="message-reply-preview">
+                                                <div className="reply-bar" />
+                                                <div className="reply-content">
+                                                    <span className="reply-sender">
+                                                        {msg.replyTo.sender._id === user._id ? "You" : msg.replyTo.sender.username}
+                                                    </span>
+                                                    <p className="reply-text">
+                                                        {getMessageText(msg.replyTo)}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        )}
+                                        <div className="message-content">
+                                            {(() => {
+                                                const isCloudinary = msg.content && typeof msg.content === 'string' && msg.content.includes("cloudinary.com");
+                                                const finalType = msg.messageType || (isCloudinary ? (msg.content.includes("/video/") ? "video" : "image") : "text");
+
+                                                if (finalType === "image") {
+                                                    return (
+                                                        <div className="message-media-container" onClick={() => setShowDpViewer(msg.content)}>
+                                                            <img src={msg.content} alt="Media" className="message-media" />
+                                                        </div>
+                                                    );
+                                                } else if (finalType === "video") {
+                                                    return (
+                                                        <div className="message-media-container">
+                                                            <video src={msg.content} controls className="message-media" />
+                                                        </div>
+                                                    );
+                                                } else {
+                                                    return <p>{getMessageText(msg)}</p>;
+                                                }
+                                            })()}
+                                        </div>
                                         <div className="message-meta">
                                             <span className="message-time">
                                                 {formatMessageTime(msg.createdAt)}
@@ -579,10 +759,17 @@ export default function ChatWindow({ isMobile }) {
 
             {/* Message Input */}
             <div className="message-input-wrapper">
-                {showEmojiPicker && (
+                {(showEmojiPicker || activeEmojiPickerMsgId) && (
                     <div className="emoji-picker-container" ref={emojiPickerRef}>
                         <EmojiPicker
-                            onEmojiClick={onEmojiClick}
+                            onEmojiClick={(emojiData) => {
+                                if (activeEmojiPickerMsgId) {
+                                    handleReaction(activeEmojiPickerMsgId, emojiData.emoji);
+                                    setActiveEmojiPickerMsgId(null);
+                                } else {
+                                    setInputValue((prev) => prev + emojiData.emoji);
+                                }
+                            }}
                             width="100%"
                             height={400}
                             searchPlaceholder="Search emojis..."
@@ -608,6 +795,34 @@ export default function ChatWindow({ isMobile }) {
                         </button>
                     </div>
                 )}
+                {selectedFile && (
+                    <div className="file-preview-banner">
+                        <div className="file-preview-content">
+                            {filePreview ? (
+                                selectedFile.type.startsWith("video/") ? (
+                                    <video src={filePreview} className="file-preview-image" />
+                                ) : (
+                                    <img src={filePreview} alt="Preview" className="file-preview-image" />
+                                )
+                            ) : (
+                                <div className="file-preview-generic">
+                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" /><polyline points="13 2 13 9 20 9" /></svg>
+                                    <span>{selectedFile.name} ({(selectedFile.size / 1024).toFixed(1)} KB)</span>
+                                </div>
+                            )}
+                        </div>
+                        <button
+                            className="file-preview-close"
+                            onClick={() => {
+                                setSelectedFile(null);
+                                setFilePreview(null);
+                                if (fileInputRef.current) fileInputRef.current.value = "";
+                            }}
+                        >
+                            ×
+                        </button>
+                    </div>
+                )}
                 <div className="message-input-area">
                     <button
                         className={`emoji-btn ${showEmojiPicker ? "active" : ""}`}
@@ -616,18 +831,44 @@ export default function ChatWindow({ isMobile }) {
                         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><path d="M8 14s1.5 2 4 2 4-2 4-2" /><line x1="9" y1="9" x2="9.01" y2="9" /><line x1="15" y1="9" x2="15.01" y2="9" /></svg>
                     </button>
                     <input
+                        type="file"
+                        ref={fileInputRef}
+                        style={{ display: "none" }}
+                        onChange={handleFileSelect}
+                        accept="image/*,video/*"
+                    />
+                    <button
+                        className="attach-btn"
+                        onClick={() => fileInputRef.current?.click()}
+                    >
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" /></svg>
+                    </button>
+                    <input
                         className="message-input"
                         type="text"
-                        placeholder="Type a message..."
+                        placeholder={selectedFile ? "Add a caption..." : "Type a message..."}
                         value={inputValue}
                         onChange={handleInputChange}
                         onKeyDown={handleKeyDown}
+                        disabled={uploadingMedia}
                     />
-                    <button className="send-btn" onClick={handleSend}>
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" /></svg>
+                    <button className="send-btn" onClick={handleSend} disabled={uploadingMedia}>
+                        {uploadingMedia ? (
+                            <div className="spinner" style={{ width: 18, height: 18 }}></div>
+                        ) : (
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" /></svg>
+                        )}
                     </button>
                 </div>
             </div>
+
+            {/* DP Viewer Overlay */}
+            {showDpViewer && (
+                <div className="dp-viewer-overlay" onClick={() => setShowDpViewer(null)}>
+                    <button className="dp-viewer-close" onClick={() => setShowDpViewer(null)}>✕</button>
+                    <img src={showDpViewer} alt="Profile" onClick={(e) => e.stopPropagation()} />
+                </div>
+            )}
         </div>
     );
 }

@@ -1,6 +1,6 @@
 "use client";
 import { createContext, useContext, useState, useEffect, useCallback } from "react";
-import { getMeAPI } from "@/lib/api";
+import { getMeAPI, logoutAPI } from "@/lib/api";
 import { connectSocket, disconnectSocket } from "@/lib/socket";
 
 const AuthContext = createContext();
@@ -19,10 +19,10 @@ export function AuthProvider({ children }) {
                 setUser(data);
                 connectSocket(data._id);
             } else {
-                logout();
+                setUser(null);
             }
         } catch (error) {
-            logout();
+            setUser(null);
         } finally {
             setLoading(false);
         }
@@ -30,12 +30,9 @@ export function AuthProvider({ children }) {
 
     useEffect(() => {
         const savedToken = localStorage.getItem("charcha_token");
-        if (savedToken) {
-            setToken(savedToken);
-            fetchUser();
-        } else {
-            setLoading(false);
-        }
+        if (savedToken) setToken(savedToken);
+
+        fetchUser();
     }, [fetchUser]);
 
     const login = (userData) => {
@@ -45,11 +42,17 @@ export function AuthProvider({ children }) {
         connectSocket(userData._id);
     };
 
-    const logout = () => {
-        localStorage.removeItem("charcha_token");
-        setToken(null);
-        setUser(null);
-        disconnectSocket();
+    const logout = async () => {
+        try {
+            await logoutAPI();
+        } catch (error) {
+            console.error("Logout error:", error);
+        } finally {
+            localStorage.removeItem("charcha_token");
+            setToken(null);
+            setUser(null);
+            disconnectSocket();
+        }
     };
 
     return (

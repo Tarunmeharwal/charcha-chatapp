@@ -54,17 +54,21 @@ export default function SearchPanel({ onClose }) {
 
     const handleSendRequest = async (userId) => {
         try {
-            await sendFriendRequestAPI(userId);
-            setSentRequests((prev) => [...prev, userId]);
+            const response = await sendFriendRequestAPI(userId);
 
-            // Emit socket event for real-time notification
+            if (response.status === "accepted") {
+                setResults((prev) =>
+                    prev.map((u) => u._id === userId ? { ...u, relationship: "friends" } : u)
+                );
+            } else {
+                setSentRequests((prev) => [...prev, userId]);
+            }
+
             const socket = getSocket();
-            socket.emit("send_friend_request", {
-                from: user,
-                to: userId
-            });
+            socket.emit("send_friend_request", { from: user, to: userId });
         } catch (error) {
             console.error("Error sending request:", error);
+            alert(error.response?.data?.message || "Failed to send request");
         }
     };
 
@@ -86,11 +90,6 @@ export default function SearchPanel({ onClose }) {
         }
     };
 
-    const isFriend = (userId) => {
-        return user?.friends?.some(
-            (f) => (typeof f === "string" ? f : f._id) === userId
-        );
-    };
 
     return (
         <div className="panel-overlay">
@@ -185,15 +184,23 @@ export default function SearchPanel({ onClose }) {
                             <h4>@{u.username}</h4>
                             <p>{u.about || "Hey there! I am using Charcha"}</p>
                         </div>
-                        {isFriend(u._id) ? (
+                        {u.relationship === "friends" ? (
                             <button
                                 className="action-btn"
                                 onClick={() => handleStartChat(u._id)}
                             >
                                 Chat
                             </button>
-                        ) : sentRequests.includes(u._id) ? (
-                            <button className="action-btn sent">Sent ✓</button>
+                        ) : u.relationship === "request_sent" || sentRequests.includes(u._id) ? (
+                            <button className="action-btn sent" disabled>Sent ✓</button>
+                        ) : u.relationship === "request_received" ? (
+                            <button
+                                className="action-btn"
+                                onClick={() => handleSendRequest(u._id)}
+                                style={{ background: "var(--gradient-success)" }}
+                            >
+                                Accept
+                            </button>
                         ) : (
                             <button
                                 className="action-btn"

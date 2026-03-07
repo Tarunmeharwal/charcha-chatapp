@@ -92,7 +92,10 @@ const getMessages = async (req, res) => {
         }
 
         const messages = await populateMessageQuery(
-            Message.find({ chat: req.params.chatId }).sort({ createdAt: 1 })
+            Message.find({
+                chat: req.params.chatId,
+                deletedBy: { $ne: req.user._id }
+            }).sort({ createdAt: 1 })
         );
 
         res.json(messages);
@@ -201,11 +204,12 @@ const removeReaction = async (req, res) => {
     }
 };
 
-// @desc    Unsend my message
-// @route   PUT /api/messages/unsend/:messageId
+// @desc    Unsend my message (Full Deletion)
+// @route   DELETE /api/messages/unsend/:messageId
 const unsendMessage = async (req, res) => {
     try {
-        const message = await Message.findById(req.params.messageId);
+        const messageId = req.params.messageId;
+        const message = await Message.findById(messageId);
         if (!message) {
             return res.status(404).json({ message: "Message not found" });
         }
@@ -216,17 +220,102 @@ const unsendMessage = async (req, res) => {
                 .json({ message: "Only sender can unsend this message" });
         }
 
-        message.content = "";
-        message.isUnsent = true;
-        message.unsentAt = new Date();
-        message.reactions = [];
-        await message.save();
+        const chatId = message.chat;
+        await message.deleteOne();
 
-        const updatedMessage = await populateMessageQuery(
-            Message.findById(req.params.messageId)
+        // If this was the latest message, find the new latest message for this chat
+        const chat = await Chat.findById(chatId);
+        if (chat && chat.latestMessage?.toString() === messageId) {
+            const nextLatest = await Message.findOne({ chat: chatId })
+                .sort({ createdAt: -1 });
+            chat.latestMessage = nextLatest ? nextLatest._id : null;
+            await chat.save();
+        }
+
+        res.json({ _id: messageId, chatId });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+// @desc    Delete message for me ONLY
+// @route   DELETE /api/messages/:messageId/delete-for-me
+const deleteForMe = async (req, res) => {
+    try {
+        const message = await Message.findById(req.params.messageId);
+        if (!message) {
+            return res.status(404).json({ message: "Message not found" });
+        }
+
+        const canAccess = await isUserInChat(message.chat, req.user._id);
+        if (!canAccess) {
+            return res.status(403).json({ message: "Access denied" });
+        }
+
+        // Add user to deletedBy if not already there
+        if (!message.deletedBy.includes(req.user._id)) {
+            message.deletedBy.push(req.user._id);
+            await message.save();
+        }
+
+        res.json({ message: "Message deleted for you" });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+// @desc    Send a media message (image/video)
+// @route   POST /api/messages/media
+const sendMediaMessage = async (req, res) => {
+    try {
+        const { chatId, replyTo } = req.body;
+        const { isCloudinaryConfigured, uploadStatusMedia } = require("../utils/cloudinary");
+
+        if (!chatId) {
+            return res.status(400).json({ message: "ChatId required" });
+        }
+
+        if (!req.file) {
+            return res.status(400).json({ message: "No media file provided" });
+        }
+
+        const canSend = await isUserInChat(chatId, req.user._id);
+        if (!canSend) {
+            return res.status(403).json({ message: "Access denied" });
+        }
+
+        if (!isCloudinaryConfigured()) {
+            return res.status(400).json({ message: "Cloudinary not configured" });
+        }
+
+        const isVideo = req.file.mimetype.startsWith("video/");
+        const resourceType = isVideo ? "video" : "image";
+        const messageType = isVideo ? "video" : "image";
+
+        const result = await uploadStatusMedia(
+            req.file.buffer,
+            req.user._id,
+            resourceType
         );
 
-        res.json(updatedMessage);
+        let message = await Message.create({
+            sender: req.user._id,
+            content: result.secure_url,
+            chat: chatId,
+            messageType,
+            replyTo: replyTo || null,
+            readBy: [req.user._id],
+        });
+
+        message = await populateMessageDoc(message);
+        message = await Message.populate(message, {
+            path: "chat.users",
+            select: "username profilePic",
+        });
+
+        await Chat.findByIdAndUpdate(chatId, { latestMessage: message._id });
+
+        res.status(201).json(message);
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
@@ -239,4 +328,6 @@ module.exports = {
     reactToMessage,
     removeReaction,
     unsendMessage,
+    deleteForMe,
+    sendMediaMessage,
 };

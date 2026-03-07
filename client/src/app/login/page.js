@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { loginAPI } from "@/lib/api";
@@ -9,8 +9,22 @@ export default function LoginPage() {
     const [formData, setFormData] = useState({ email: "", password: "" });
     const [error, setError] = useState("");
     const [loading, setLoading] = useState(false);
-    const { login } = useAuth();
+    const { login, user, loading: authLoading } = useAuth();
     const router = useRouter();
+
+    useEffect(() => {
+        if (!authLoading && user) {
+            router.replace("/chat");
+        }
+    }, [user, authLoading, router]);
+
+    if (authLoading) {
+        return (
+            <div className="auth-container">
+                <div className="spinner"></div>
+            </div>
+        );
+    }
 
     const handleChange = (e) => {
         setFormData({ ...formData, [e.target.name]: e.target.value });
