@@ -15,6 +15,7 @@ import {
 import { getSocket } from "@/lib/socket";
 import EmojiPicker from "emoji-picker-react";
 import { getAvatarSrc } from "@/lib/avatar";
+import { downloadMedia } from "@/lib/download";
 
 const QUICK_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
 
@@ -717,12 +718,32 @@ export default function ChatWindow({ isMobile }) {
                                                     return (
                                                         <div className="message-media-container" onClick={() => setShowDpViewer(msg.content)}>
                                                             <img src={msg.content} alt="Media" className="message-media" />
+                                                            <button
+                                                                className="media-download-btn"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    downloadMedia(msg.content, `image_${msg._id}`);
+                                                                }}
+                                                                title="Download Image"
+                                                            >
+                                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
+                                                            </button>
                                                         </div>
                                                     );
                                                 } else if (finalType === "video") {
                                                     return (
                                                         <div className="message-media-container">
                                                             <video src={msg.content} controls className="message-media" />
+                                                            <button
+                                                                className="media-download-btn"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    downloadMedia(msg.content, `video_${msg._id}`);
+                                                                }}
+                                                                title="Download Video"
+                                                            >
+                                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
+                                                            </button>
                                                         </div>
                                                     );
                                                 } else {

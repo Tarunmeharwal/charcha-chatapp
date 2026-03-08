@@ -10,6 +10,7 @@ import {
     createMediaStatusAPI,
 } from "@/lib/api";
 import { getAvatarSrc } from "@/lib/avatar";
+import { downloadMedia } from "@/lib/download";
 
 const STATUS_COLORS = [
     "#075E54", "#128C7E", "#25D366", "#34B7F1",
@@ -540,6 +541,21 @@ export default function StatusList() {
                                 )}
                             </div>
                         )}
+
+                        <div className="status-viewer-actions" style={{ marginLeft: showViewer.user?._id === user?._id ? "0" : "auto" }}>
+                            {(currentViewedStatus?.type === "image" || currentViewedStatus?.type === "video") && (
+                                <button
+                                    className="status-download-btn"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        downloadMedia(currentViewedStatus.mediaUrl, `${currentViewedStatus.type}_${currentViewedStatus._id}`);
+                                    }}
+                                    title={`Download ${currentViewedStatus.type}`}
+                                >
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
+                                </button>
+                            )}
+                        </div>
                         <button
                             className="close-btn"
                             onClick={(e) => {
