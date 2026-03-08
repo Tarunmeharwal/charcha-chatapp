@@ -166,7 +166,12 @@ export default function Sidebar() {
         return notifications.filter((n) => n.chat._id === chatId).length;
     };
 
-    const filteredChats = chats.filter((chat) => {
+    const filteredChats = chats.filter((chat, index, self) => {
+        // Deduplicate by _id
+        if (chat && chat._id && index !== self.findIndex((c) => c && String(c._id) === String(chat._id))) {
+            return false;
+        }
+
         if (!searchQuery) return true;
         const name = getChatName(chat);
         return name.toLowerCase().includes(searchQuery.toLowerCase());

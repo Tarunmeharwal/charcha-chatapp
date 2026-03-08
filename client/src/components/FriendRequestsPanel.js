@@ -14,9 +14,13 @@ export default function FriendRequestsPanel({ onClose, setFriendRequests }) {
         try {
             const data = await getFriendRequestsAPI();
             if (Array.isArray(data)) {
-                setRequests(data);
+                // Deduplicate by _id
+                const uniqueRequests = data.filter((req, index, self) =>
+                    req && req._id && index === self.findIndex((r) => r && String(r._id) === String(req._id))
+                );
+                setRequests(uniqueRequests);
                 // Also update the sidebar count
-                if (setFriendRequests) setFriendRequests(data);
+                if (setFriendRequests) setFriendRequests(uniqueRequests);
             }
         } catch (error) {
             console.error("Error fetching requests:", error);

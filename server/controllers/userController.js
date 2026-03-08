@@ -92,9 +92,16 @@ const sendFriendRequest = async (req, res) => {
         if (incomingRequest) {
             // Already sent us a request, just accept it
             incomingRequest.status = "accepted";
-            currentUser.friends.push(targetUserId);
 
-            targetUser.friends.push(req.user._id);
+            // Add to friends avoiding duplicates
+            if (!currentUser.friends.some(id => id.toString() === targetUserId)) {
+                currentUser.friends.push(targetUserId);
+            }
+
+            if (!targetUser.friends.some(id => id.toString() === req.user._id.toString())) {
+                targetUser.friends.push(req.user._id);
+            }
+
             await currentUser.save();
             await targetUser.save();
 
@@ -138,10 +145,13 @@ const respondFriendRequest = async (req, res) => {
         }
 
         if (action === "accepted") {
-            // Add each other as friends
-            user.friends.push(request.from);
+            // Add each other as friends avoiding duplicates
+            if (!user.friends.some(id => id.toString() === request.from.toString())) {
+                user.friends.push(request.from);
+            }
+
             await User.findByIdAndUpdate(request.from, {
-                $push: { friends: user._id },
+                $addToSet: { friends: user._id },
             });
             request.status = "accepted";
         } else {
@@ -303,6 +313,59 @@ const deleteProfileAvatar = async (req, res) => {
     }
 };
 
+// @desc    Get random user suggestions
+// @route   GET /api/users/suggestions
+const getSuggestions = async (req, res) => {
+    try {
+        const currentUser = await User.findById(req.user._id).select("friends friendRequests");
+
+        // Users to exclude: current user and current friends
+        const excludeIds = [req.user._id, ...currentUser.friends];
+
+        // Also exclude users who we have already sent a request to
+        const sentRequestIds = currentUser.friendRequests
+            .filter(r => r.status === "pending")
+            .map(r => r.from);
+
+        // We need to check both directions for pending requests
+        // But for simplicity in "random suggestions", excluding friends and self is usually enough
+        // Let's refine the exclude list
+
+        const users = await User.aggregate([
+            { $match: { _id: { $nin: excludeIds } } },
+            { $sample: { size: 5 } },
+            { $project: { username: 1, profilePic: 1, about: 1, isOnline: 1, lastSeen: 1, friendRequests: 1 } }
+        ]);
+
+        const results = users.map((u) => {
+            let relationship = "none";
+
+            // Check if we sent them a request
+            if (u.friendRequests && u.friendRequests.some(r => r.from.toString() === req.user._id.toString() && r.status === "pending")) {
+                relationship = "request_sent";
+            }
+            // Check if they sent us a request
+            else if (currentUser.friendRequests.some(r => r.from.toString() === u._id.toString() && r.status === "pending")) {
+                relationship = "request_received";
+            }
+
+            return {
+                _id: u._id,
+                username: u.username,
+                profilePic: u.profilePic,
+                about: u.about,
+                isOnline: u.isOnline,
+                lastSeen: u.lastSeen,
+                relationship
+            };
+        });
+
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
 module.exports = {
     searchUsers,
     sendFriendRequest,
@@ -312,4 +375,5 @@ module.exports = {
     updateProfile,
     uploadProfileAvatar,
     deleteProfileAvatar,
+    getSuggestions,
 };

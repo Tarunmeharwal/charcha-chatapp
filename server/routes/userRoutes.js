@@ -8,6 +8,7 @@ const {
     updateProfile,
     uploadProfileAvatar,
     deleteProfileAvatar,
+    getSuggestions,
 } = require("../controllers/userController");
 const { protect } = require("../middleware/auth");
 const { uploadAvatar } = require("../middleware/avatarUpload");
@@ -15,6 +16,7 @@ const { uploadAvatar } = require("../middleware/avatarUpload");
 const router = express.Router();
 
 router.get("/search", protect, searchUsers);
+router.get("/suggestions", protect, getSuggestions);
 router.get("/friends", protect, getFriends);
 router.get("/friend-requests", protect, getFriendRequests);
 router.post("/friend-request/:userId", protect, sendFriendRequest);

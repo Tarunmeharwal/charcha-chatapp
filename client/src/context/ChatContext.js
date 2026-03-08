@@ -39,7 +39,11 @@ export function ChatProvider({ children }) {
         try {
             const data = await getChatsAPI();
             if (Array.isArray(data)) {
-                setChats(data);
+                // Deduplicate by _id
+                const uniqueChats = data.filter((chat, index, self) =>
+                    chat && chat._id && index === self.findIndex((c) => c && String(c._id) === String(chat._id))
+                );
+                setChats(uniqueChats);
             }
         } catch (error) {
             console.error("Error fetching chats:", error);

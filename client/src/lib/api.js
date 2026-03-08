@@ -63,6 +63,14 @@ export const searchUsersAPI = async (query) => {
     return res.json();
 };
 
+export const getSuggestionsAPI = async () => {
+    const res = await fetch(`${API_URL}/users/suggestions`, {
+        headers: getHeaders(),
+        credentials: "include",
+    });
+    return res.json();
+};
+
 export const sendFriendRequestAPI = async (userId) => {
     const res = await fetch(`${API_URL}/users/friend-request/${userId}`, {
         method: "POST",

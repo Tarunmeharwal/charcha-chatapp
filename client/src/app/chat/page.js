@@ -8,7 +8,7 @@ import ChatWindow from "@/components/ChatWindow";
 
 export default function ChatPage() {
     const { user, loading } = useAuth();
-    const { selectedChat } = useChat();
+    const { selectedChat, setSelectedChat } = useChat();
     const router = useRouter();
     const [isMobile, setIsMobile] = useState(false);
 
@@ -24,6 +24,26 @@ export default function ChatPage() {
         window.addEventListener("resize", checkMobile);
         return () => window.removeEventListener("resize", checkMobile);
     }, []);
+
+    // Handle browser back button on mobile
+    useEffect(() => {
+        if (isMobile && selectedChat) {
+            // Push a dummy state to history so we can catch the back button
+            window.history.pushState({ chatOpen: true }, "");
+        }
+    }, [selectedChat, isMobile]);
+
+    useEffect(() => {
+        const handlePopState = (e) => {
+            if (isMobile && selectedChat) {
+                // If the user clicks back, just close the chat
+                setSelectedChat(null);
+            }
+        };
+
+        window.addEventListener("popstate", handlePopState);
+        return () => window.removeEventListener("popstate", handlePopState);
+    }, [isMobile, selectedChat, setSelectedChat]);
 
     if (loading) {
         return (

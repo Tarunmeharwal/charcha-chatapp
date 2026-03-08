@@ -20,7 +20,11 @@ export default function CreateGroupPanel({ onClose }) {
             try {
                 const data = await getFriendsAPI();
                 if (Array.isArray(data)) {
-                    setFriends(data);
+                    // Deduplicate by _id
+                    const uniqueFriends = data.filter((friend, index, self) =>
+                        friend && friend._id && index === self.findIndex((f) => f && String(f._id) === String(friend._id))
+                    );
+                    setFriends(uniqueFriends);
                 }
             } catch (error) {
                 console.error("Error fetching friends:", error);
@@ -97,9 +101,9 @@ export default function CreateGroupPanel({ onClose }) {
                         ) : (
                             friends.map((f) => (
                                 <div
-                                    key={f._id}
-                                    className={`user-item ${selectedUsers.includes(f._id) ? "selected" : ""}`}
-                                    onClick={() => toggleUserSelection(f._id)}
+                                    key={`member-${f._id}`}
+                                    className={`user-item ${selectedUsers.includes(String(f._id)) ? "selected" : ""}`}
+                                    onClick={() => toggleUserSelection(String(f._id))}
                                 >
                                     <div className="chat-avatar" style={{ width: 45, height: 45, fontSize: 18 }}>
                                         <img
@@ -112,8 +116,8 @@ export default function CreateGroupPanel({ onClose }) {
                                         <h4>@{f.username}</h4>
                                         <p>{f.about || "Hey there! I am using Charcha"}</p>
                                     </div>
-                                    <div className={`checkbox ${selectedUsers.includes(f._id) ? "checked" : ""}`}>
-                                        {selectedUsers.includes(f._id) && "✓"}
+                                    <div className={`checkbox ${selectedUsers.includes(String(f._id)) ? "checked" : ""}`}>
+                                        {selectedUsers.includes(String(f._id)) && "✓"}
                                     </div>
                                 </div>
                             ))
@@ -158,8 +162,8 @@ export default function CreateGroupPanel({ onClose }) {
                                 Members: {selectedUsers.length}
                             </div>
                             <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-                                {friends.filter(f => selectedUsers.includes(f._id)).map(f => (
-                                    <div key={f._id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 20, background: "var(--bg-hover)", fontSize: 12 }}>
+                                {friends.filter(f => selectedUsers.includes(String(f._id))).map(f => (
+                                    <div key={`selected-${f._id}`} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 20, background: "var(--bg-hover)", fontSize: 12 }}>
                                         <img src={getAvatarSrc(f)} style={{ width: 20, height: 20, borderRadius: "50%" }} alt="" />
                                         {f.username}
                                     </div>
