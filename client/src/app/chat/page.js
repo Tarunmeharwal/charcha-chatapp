@@ -25,6 +25,24 @@ export default function ChatPage() {
         return () => window.removeEventListener("resize", checkMobile);
     }, []);
 
+    useEffect(() => {
+        const setAppHeight = () => {
+            const viewportHeight = window.visualViewport?.height || window.innerHeight;
+            document.documentElement.style.setProperty("--app-height", `${viewportHeight}px`);
+        };
+
+        setAppHeight();
+        window.addEventListener("resize", setAppHeight);
+        window.addEventListener("orientationchange", setAppHeight);
+        window.visualViewport?.addEventListener("resize", setAppHeight);
+
+        return () => {
+            window.removeEventListener("resize", setAppHeight);
+            window.removeEventListener("orientationchange", setAppHeight);
+            window.visualViewport?.removeEventListener("resize", setAppHeight);
+        };
+    }, []);
+
     // Handle browser back button on mobile
     useEffect(() => {
         if (isMobile && selectedChat) {
