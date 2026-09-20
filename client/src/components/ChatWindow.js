@@ -34,6 +34,8 @@ export default function ChatWindow({ isMobile }) {
         typingUsers,
         fetchMessages,
         fetchChats,
+        chats,
+        setChats,
         loadingMessages,
         activeTab,
     } = useChat();
@@ -203,6 +205,23 @@ export default function ChatWindow({ isMobile }) {
                 setMessages((prev) =>
                     prev.some((msg) => msg._id === data._id) ? prev : [...prev, data]
                 );
+                
+                // Update local chat list for sender so sidebar updates instantly
+                setChats?.((prev) => {
+                    const updatedChats = prev.map((chat) => {
+                        if (chat._id === selectedChat._id) {
+                            return { ...chat, latestMessage: data };
+                        }
+                        return chat;
+                    });
+                    const chatIndex = updatedChats.findIndex((c) => c._id === selectedChat._id);
+                    if (chatIndex > 0) {
+                        const [chat] = updatedChats.splice(chatIndex, 1);
+                        updatedChats.unshift(chat);
+                    }
+                    return updatedChats;
+                });
+
                 setReplyingTo(null);
                 socket.emit("new_message", data);
             }

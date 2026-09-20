@@ -18,10 +18,9 @@ export default function HomePage() {
   }, [user, loading, router]);
 
   return (
-    <div className="auth-container">
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", backgroundColor: "var(--bg-primary)" }}>
       <div style={{ textAlign: "center" }}>
         <div className="spinner" style={{ margin: "0 auto" }}></div>
-        <p style={{ marginTop: 16, color: "var(--text-secondary)" }}>Loading Charcha...</p>
       </div>
     </div>
   );
