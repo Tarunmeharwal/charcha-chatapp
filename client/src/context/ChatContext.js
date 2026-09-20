@@ -9,7 +9,7 @@ const ChatContext = createContext();
 export const useChat = () => useContext(ChatContext);
 
 export function ChatProvider({ children }) {
-    const { user } = useAuth();
+    const { user, refreshUser } = useAuth();
     const [chats, setChats] = useState([]);
     const [selectedChat, setSelectedChat] = useState(null);
     const [messages, setMessages] = useState([]);
@@ -18,6 +18,7 @@ export function ChatProvider({ children }) {
     const [notifications, setNotifications] = useState([]);
     const [loadingChats, setLoadingChats] = useState(false);
     const [loadingMessages, setLoadingMessages] = useState(false);
+    const [activeTab, setActiveTab] = useState("chats");
 
     const dedupeMessages = useCallback((items) => {
         const seen = new Set();
@@ -185,6 +186,11 @@ export function ChatProvider({ children }) {
         socket.on("friend_request_accepted", () => {
             // Refresh chats and user profile
             fetchChats();
+            if (refreshUser) refreshUser();
+        });
+
+        socket.on("new_friend_request", () => {
+            if (refreshUser) refreshUser();
         });
 
         return () => {
@@ -197,8 +203,9 @@ export function ChatProvider({ children }) {
             socket.off("typing");
             socket.off("stop_typing");
             socket.off("friend_request_accepted");
+            socket.off("new_friend_request");
         };
-    }, [user, fetchChats, dedupeMessages]);
+    }, [user, fetchChats, dedupeMessages, refreshUser]);
 
     // Fetch chats when user logs in
     useEffect(() => {
@@ -211,7 +218,7 @@ export function ChatProvider({ children }) {
     const getChatPartner = (chat) => {
         if (!chat || !user) return null;
         if (chat.isGroupChat) return null;
-        return chat.users.find((u) => u._id !== user._id);
+        return chat.users.find((u) => u && u._id !== user._id);
     };
 
     // Remove notification for a chat
@@ -234,6 +241,8 @@ export function ChatProvider({ children }) {
                 removeNotification,
                 loadingChats,
                 loadingMessages,
+                activeTab,
+                setActiveTab,
                 fetchChats,
                 fetchMessages,
                 getChatPartner,

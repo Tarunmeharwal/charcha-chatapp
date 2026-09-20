@@ -31,6 +31,20 @@ export default function FriendRequestsPanel({ onClose, setFriendRequests }) {
 
     useEffect(() => {
         fetchRequests();
+
+        const socket = getSocket();
+        
+        const handleRefresh = () => {
+            fetchRequests();
+        };
+
+        socket.on("new_friend_request", handleRefresh);
+        socket.on("friend_request_accepted", handleRefresh);
+
+        return () => {
+            socket.off("new_friend_request", handleRefresh);
+            socket.off("friend_request_accepted", handleRefresh);
+        };
     }, [fetchRequests]);
 
     const handleRespond = async (requestId, action) => {

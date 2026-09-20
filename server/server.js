@@ -13,7 +13,13 @@ const socketHandler = require("./socket/socketHandler");
 dotenv.config();
 
 // Connect to MongoDB
-connectDB();
+connectDB().then(() => {
+    const mongoose = require("mongoose");
+    // Drop the old TTL index if it exists so we can manage expiration manually
+    mongoose.connection.db.collection('statuses').dropIndex('expiresAt_1').catch(err => {
+        // Ignore if index doesn't exist
+    });
+});
 
 const app = express();
 const server = http.createServer(app);
@@ -75,6 +81,12 @@ app.get("/api/health", (req, res) => {
 
 // Socket.io handler
 socketHandler(io);
+
+// Auto-cleanup expired statuses every hour
+const { autoDeleteExpiredStatuses } = require("./controllers/statusController");
+setInterval(() => {
+    autoDeleteExpiredStatuses();
+}, 60 * 60 * 1000); // Every hour
 
 // Error Handling Middleware
 app.use((err, req, res, next) => {

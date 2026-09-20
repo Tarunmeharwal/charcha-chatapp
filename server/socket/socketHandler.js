@@ -94,6 +94,16 @@ const socketHandler = (io) => {
             socket.in(to).emit("friend_request_accepted", from);
         });
 
+        // Status update
+        socket.on("status_uploaded", () => {
+            socket.broadcast.emit("new_status");
+        });
+
+        // Status deleted
+        socket.on("status_deleted", () => {
+            socket.broadcast.emit("status_deleted");
+        });
+
         // Disconnect
         socket.on("disconnect", async () => {
             console.log("❌ Socket disconnected:", socket.id);

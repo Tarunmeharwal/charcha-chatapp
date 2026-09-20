@@ -269,7 +269,7 @@ const deleteForMe = async (req, res) => {
 const sendMediaMessage = async (req, res) => {
     try {
         const { chatId, replyTo } = req.body;
-        const { isCloudinaryConfigured, uploadStatusMedia } = require("../utils/cloudinary");
+        const { isCloudinaryConfigured, uploadMessageMedia } = require("../utils/cloudinary");
 
         if (!chatId) {
             return res.status(400).json({ message: "ChatId required" });
@@ -292,7 +292,7 @@ const sendMediaMessage = async (req, res) => {
         const resourceType = isVideo ? "video" : "image";
         const messageType = isVideo ? "video" : "image";
 
-        const result = await uploadStatusMedia(
+        const result = await uploadMessageMedia(
             req.file.buffer,
             req.user._id,
             resourceType

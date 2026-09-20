@@ -16,6 +16,9 @@ import { getSocket } from "@/lib/socket";
 import EmojiPicker from "emoji-picker-react";
 import { getAvatarSrc } from "@/lib/avatar";
 import { downloadMedia } from "@/lib/download";
+import { IoCheckmark, IoCheckmarkDoneOutline } from "react-icons/io5";
+import { RiArrowDownSLine } from "react-icons/ri";
+import { Camera, Video } from "lucide-react";
 
 const QUICK_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
 
@@ -32,11 +35,13 @@ export default function ChatWindow({ isMobile }) {
         fetchMessages,
         fetchChats,
         loadingMessages,
+        activeTab,
     } = useChat();
 
     const [inputValue, setInputValue] = useState("");
     const [isTyping, setIsTyping] = useState(false);
     const [activeMessageMenu, setActiveMessageMenu] = useState(null);
+    const [menuOpensUp, setMenuOpensUp] = useState(false);
     const [showEmojiPicker, setShowEmojiPicker] = useState(false);
     const [replyingTo, setReplyingTo] = useState(null);
     const [showChatDropdown, setShowChatDropdown] = useState(false);
@@ -272,16 +277,22 @@ export default function ChatWindow({ isMobile }) {
     };
 
     const getReadStatus = (message) => {
-        if (message.sender._id !== user._id) return null;
+        if (message.sender?._id !== user._id) return null;
         if (message.readBy && message.readBy.length > 1) return "read";
         return "sent";
     };
 
     const getMessageText = (message) => {
-        // Defensive check: if it's a media link but type is 'text'
+        const photoLabel = <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}><Camera size={14} /> Photo</span>;
+        const videoLabel = <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}><Video size={14} /> Video</span>;
+
+        if (message.messageType === "image") return photoLabel;
+        if (message.messageType === "video") return videoLabel;
+
+        // Defensive check: if it's a media link but type is 'text' or missing
         const isCloudinary = message.content && typeof message.content === 'string' && message.content.includes("cloudinary.com");
-        if (isCloudinary && message.messageType === "text") {
-            return message.content.includes("/video/") ? "🎥 Video" : "📷 Photo";
+        if (isCloudinary) {
+            return message.content.includes("/video/") ? videoLabel : photoLabel;
         }
 
         return message.content;
@@ -436,7 +447,7 @@ export default function ChatWindow({ isMobile }) {
 
     const getReplyPreviewText = (replyMessage) => {
         if (!replyMessage) return "Message unavailable";
-        return replyMessage.content || "Media message";
+        return getMessageText(replyMessage) || "Media message";
     };
 
     const onEmojiClick = (emojiData) => {
@@ -460,6 +471,21 @@ export default function ChatWindow({ isMobile }) {
 
     // Empty state
     if (!selectedChat) {
+        if (activeTab === "status") {
+            return (
+                <div className="chat-window-empty">
+                    <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="#d1d5db" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.5 }}>
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <polyline points="12 6 12 12 16 14"></polyline>
+                    </svg>
+                    <h3>Status Updates</h3>
+                    <p>
+                        Click on a contact to view their status updates.
+                    </p>
+                </div>
+            );
+        }
+
         return (
             <div className="chat-window-empty">
                 <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="#d1d5db" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.5 }}>
@@ -578,7 +604,7 @@ export default function ChatWindow({ isMobile }) {
                                     </div>
                                 )}
                                 <div
-                                    className={`message-wrapper ${msg.sender._id === user._id ? "sent" : "received"
+                                    className={`message-wrapper ${msg.sender?._id === user._id ? "sent" : "received"
                                         }`}
                                 >
                                     <div
@@ -586,6 +612,7 @@ export default function ChatWindow({ isMobile }) {
                                         onContextMenu={(e) => {
                                             if (isMobile) {
                                                 e.preventDefault();
+                                                setMenuOpensUp(e.clientY > window.innerHeight * 0.55);
                                                 setActiveMessageMenu(msg._id);
                                             }
                                         }}
@@ -597,13 +624,17 @@ export default function ChatWindow({ isMobile }) {
                                         {!isMobile && (
                                             <button
                                                 className={`message-action-btn ${activeMessageMenu === msg._id ? "active" : ""}`}
-                                                onClick={() =>
-                                                    setActiveMessageMenu((prev) =>
-                                                        prev === msg._id ? null : msg._id
-                                                    )
-                                                }
+                                                onClick={(e) => {
+                                                    if (activeMessageMenu === msg._id) {
+                                                        setActiveMessageMenu(null);
+                                                    } else {
+                                                        const rect = e.currentTarget.getBoundingClientRect();
+                                                        setMenuOpensUp(rect.top > window.innerHeight * 0.55);
+                                                        setActiveMessageMenu(msg._id);
+                                                    }
+                                                }}
                                             >
-                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
+                                                <RiArrowDownSLine size={16} />
                                             </button>
                                         )}
                                         {getLatestReactionGroups(msg).length > 0 && (
@@ -615,7 +646,11 @@ export default function ChatWindow({ isMobile }) {
                                                 ))}
                                                 <button
                                                     className="message-reaction-add-btn"
-                                                    onClick={() => setActiveMessageMenu(msg._id)}
+                                                    onClick={(e) => {
+                                                        const rect = e.currentTarget.getBoundingClientRect();
+                                                        setMenuOpensUp(rect.top > window.innerHeight * 0.55);
+                                                        setActiveMessageMenu(msg._id);
+                                                    }}
                                                     title="Add reaction"
                                                 >
                                                     +
@@ -624,7 +659,7 @@ export default function ChatWindow({ isMobile }) {
                                         )}
                                         {activeMessageMenu === msg._id && (
                                             <div
-                                                className={`message-action-menu ${index > messages.length - 4 ? "opens-up" : ""}`}
+                                                className={`message-action-menu ${menuOpensUp ? "opens-up" : ""}`}
                                                 onMouseLeave={() => setActiveMessageMenu(null)}
                                             >
                                                 <div className="reaction-picker">
@@ -676,7 +711,7 @@ export default function ChatWindow({ isMobile }) {
                                                         Remove my reaction
                                                     </button>
                                                 )}
-                                                {msg.sender._id === user._id && (
+                                                {msg.sender?._id === user._id && (
                                                     <button
                                                         className="message-menu-item danger"
                                                         onClick={() =>
@@ -701,7 +736,7 @@ export default function ChatWindow({ isMobile }) {
                                                 <div className="reply-bar" />
                                                 <div className="reply-content">
                                                     <span className="reply-sender">
-                                                        {msg.replyTo.sender._id === user._id ? "You" : msg.replyTo.sender.username}
+                                                        {msg.replyTo.sender?._id === user._id ? "You" : (msg.replyTo.sender?.username || "Deleted User")}
                                                     </span>
                                                     <p className="reply-text">
                                                         {getMessageText(msg.replyTo)}
@@ -755,12 +790,12 @@ export default function ChatWindow({ isMobile }) {
                                             <span className="message-time">
                                                 {formatMessageTime(msg.createdAt)}
                                             </span>
-                                            {msg.sender._id === user._id && (
+                                            {msg.sender?._id === user._id && (
                                                 <span
                                                     className={`message-ticks ${getReadStatus(msg) === "read" ? "read" : ""
                                                         }`}
                                                 >
-                                                    {getReadStatus(msg) === "read" ? "✓✓" : "✓"}
+                                                    {getReadStatus(msg) === "read" ? <IoCheckmarkDoneOutline size={15} /> : <IoCheckmark size={15} />}
                                                 </span>
                                             )}
                                         </div>

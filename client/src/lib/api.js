@@ -106,9 +106,28 @@ export const getFriendsAPI = async () => {
     return res.json();
 };
 
+export const removeFriendAPI = async (friendId) => {
+    const res = await fetch(`${API_URL}/users/friend/${friendId}`, {
+        method: "DELETE",
+        headers: getHeaders(),
+        credentials: "include",
+    });
+    return res.json();
+};
+
 export const updateProfileAPI = async (data) => {
     const res = await fetch(`${API_URL}/users/profile`, {
         method: "PUT",
+        headers: getHeaders(),
+        body: JSON.stringify(data),
+        credentials: "include",
+    });
+    return res.json();
+};
+
+export const deleteAccountAPI = async (data) => {
+    const res = await fetch(`${API_URL}/users/account`, {
+        method: "DELETE",
         headers: getHeaders(),
         body: JSON.stringify(data),
         credentials: "include",

@@ -5,6 +5,9 @@ const {
     uploadAvatarToCloudinary,
     deleteFromCloudinary,
 } = require("../utils/cloudinary");
+const Status = require("../models/Status");
+const Chat = require("../models/Chat");
+const Message = require("../models/Message");
 
 // @desc    Search users by username
 // @route   GET /api/users/search?q=query
@@ -366,6 +369,70 @@ const getSuggestions = async (req, res) => {
     }
 };
 
+// @desc    Remove friend
+// @route   DELETE /api/users/friend/:friendId
+const removeFriend = async (req, res) => {
+    try {
+        const friendId = req.params.friendId;
+        const userId = req.user._id;
+
+        await User.findByIdAndUpdate(userId, {
+            $pull: { friends: friendId }
+        });
+
+        await User.findByIdAndUpdate(friendId, {
+            $pull: { friends: userId }
+        });
+
+        res.json({ message: "Friend removed successfully" });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+// @desc    Delete user account
+// @route   DELETE /api/users/account
+const deleteAccount = async (req, res) => {
+    try {
+        const { confirmation } = req.body;
+        if (confirmation !== "delete") {
+            return res.status(400).json({ message: "Invalid confirmation text" });
+        }
+
+        const userId = req.user._id;
+        const user = await User.findById(userId);
+
+        if (!user) {
+            return res.status(404).json({ message: "User not found" });
+        }
+
+        if (isCloudinaryConfigured() && user.profilePicPublicId) {
+            try {
+                await deleteFromCloudinary(user.profilePicPublicId);
+            } catch (err) {
+                console.error("Failed to delete avatar during account deletion:", err);
+            }
+        }
+
+        await User.updateMany(
+            { friends: userId },
+            { $pull: { friends: userId } }
+        );
+        await User.updateMany(
+            { "friendRequests.from": userId },
+            { $pull: { friendRequests: { from: userId } } }
+        );
+
+        if (Status) await Status.deleteMany({ user: userId });
+
+        await User.findByIdAndDelete(userId);
+
+        res.json({ message: "Account deleted successfully" });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
 module.exports = {
     searchUsers,
     sendFriendRequest,
@@ -376,4 +443,6 @@ module.exports = {
     uploadProfileAvatar,
     deleteProfileAvatar,
     getSuggestions,
+    removeFriend,
+    deleteAccount,
 };

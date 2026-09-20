@@ -51,7 +51,7 @@ const getStatuses = async (req, res) => {
                     statuses: [],
                 };
             }
-            groupedStatuses[userId].statuses.push(status);
+            groupedStatuses[userId].statuses.unshift(status);
         });
 
         res.json(Object.values(groupedStatuses));
@@ -97,7 +97,7 @@ const getMyStatuses = async (req, res) => {
             expiresAt: { $gt: new Date() },
         })
             .populate("viewedBy", "username profilePic")
-            .sort({ createdAt: -1 });
+            .sort({ createdAt: 1 });
 
         res.json(statuses);
     } catch (error) {
@@ -121,10 +121,34 @@ const deleteStatus = async (req, res) => {
                 .json({ message: "Only owner can delete this status" });
         }
 
+        if (status.mediaUrl && (status.type === "image" || status.type === "video")) {
+            const { deleteStatusMediaFromCloudinary } = require("../utils/cloudinary");
+            await deleteStatusMediaFromCloudinary(status.mediaUrl, status.type);
+        }
+
         await status.deleteOne();
         res.json({ message: "Status deleted" });
     } catch (error) {
         res.status(500).json({ message: error.message });
+    }
+};
+
+const autoDeleteExpiredStatuses = async () => {
+    try {
+        const expiredStatuses = await Status.find({ expiresAt: { $lt: new Date() } });
+        if (expiredStatuses.length === 0) return;
+
+        const { deleteStatusMediaFromCloudinary } = require("../utils/cloudinary");
+
+        for (const status of expiredStatuses) {
+            if (status.mediaUrl && (status.type === "image" || status.type === "video")) {
+                await deleteStatusMediaFromCloudinary(status.mediaUrl, status.type);
+            }
+            await status.deleteOne();
+        }
+        console.log(`Auto-deleted ${expiredStatuses.length} expired statuses and their media.`);
+    } catch (error) {
+        console.error("Error in autoDeleteExpiredStatuses:", error);
     }
 };
 
@@ -179,4 +203,5 @@ module.exports = {
     getMyStatuses,
     deleteStatus,
     createMediaStatus,
+    autoDeleteExpiredStatuses,
 };

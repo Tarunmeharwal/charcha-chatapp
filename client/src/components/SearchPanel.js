@@ -16,6 +16,8 @@ export default function SearchPanel({ onClose }) {
     const [friends, setFriends] = useState([]);
     const [suggestions, setSuggestions] = useState([]);
     const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+    const [friendToRemove, setFriendToRemove] = useState(null);
+    const [removeLoading, setRemoveLoading] = useState(false);
 
     const fetchFriends = async () => {
         try {
@@ -117,6 +119,29 @@ export default function SearchPanel({ onClose }) {
         }
     };
 
+    const handleRemoveFriend = (e, userId) => {
+        e.stopPropagation();
+        setFriendToRemove(userId);
+    };
+
+    const handleConfirmRemove = async () => {
+        if (!friendToRemove) return;
+        setRemoveLoading(true);
+        try {
+            const { removeFriendAPI } = await import("@/lib/api");
+            await removeFriendAPI(friendToRemove);
+            fetchFriends();
+            setSuggestions((prev) => prev.map(s => s._id === friendToRemove ? { ...s, relationship: "none" } : s));
+            setResults((prev) => prev.map(r => r._id === friendToRemove ? { ...r, relationship: "none" } : r));
+            setFriendToRemove(null);
+        } catch (error) {
+            console.error("Error removing friend:", error);
+            alert("Failed to remove friend");
+        } finally {
+            setRemoveLoading(false);
+        }
+    };
+
 
     return (
         <div className="panel-overlay">
@@ -182,7 +207,16 @@ export default function SearchPanel({ onClose }) {
                                         <h4>@{f.username}</h4>
                                         <p>{f.about || "Hey there! I am using Charcha"}</p>
                                     </div>
-                                    <button className="action-btn">Chat</button>
+                                    <div style={{ display: "flex", gap: "8px" }}>
+                                        <button className="action-btn" onClick={(e) => { e.stopPropagation(); handleStartChat(f._id); }}>Chat</button>
+                                        <button 
+                                            className="action-btn" 
+                                            style={{ background: "var(--danger)", color: "white", border: "none" }} 
+                                            onClick={(e) => handleRemoveFriend(e, f._id)}
+                                        >
+                                            Remove
+                                        </button>
+                                    </div>
                                 </div>
                             ))
                         )}
@@ -214,12 +248,21 @@ export default function SearchPanel({ onClose }) {
                                         <p>{u.about || "Hey there! I am using Charcha"}</p>
                                     </div>
                                     {u.relationship === "friends" ? (
-                                        <button
-                                            className="action-btn"
-                                            onClick={() => handleStartChat(u._id)}
-                                        >
-                                            Chat
-                                        </button>
+                                        <div style={{ display: "flex", gap: "8px" }}>
+                                            <button
+                                                className="action-btn"
+                                                onClick={(e) => { e.stopPropagation(); handleStartChat(u._id); }}
+                                            >
+                                                Chat
+                                            </button>
+                                            <button 
+                                                className="action-btn" 
+                                                style={{ background: "var(--danger)", color: "white", border: "none" }} 
+                                                onClick={(e) => handleRemoveFriend(e, u._id)}
+                                            >
+                                                Remove
+                                            </button>
+                                        </div>
                                     ) : u.relationship === "request_sent" || sentRequests.includes(String(u._id)) ? (
                                         <button className="action-btn sent" disabled>Sent ✓</button>
                                     ) : u.relationship === "request_received" ? (
@@ -308,12 +351,21 @@ export default function SearchPanel({ onClose }) {
                                         </div>
 
                                         {u.relationship === "friends" ? (
-                                            <button
-                                                className="action-btn"
-                                                onClick={() => handleStartChat(u._id)}
-                                            >
-                                                Chat
-                                            </button>
+                                            <div style={{ display: "flex", gap: "8px" }}>
+                                                <button
+                                                    className="action-btn"
+                                                    onClick={(e) => { e.stopPropagation(); handleStartChat(u._id); }}
+                                                >
+                                                    Chat
+                                                </button>
+                                                <button 
+                                                    className="action-btn" 
+                                                    style={{ background: "var(--danger)", color: "white", border: "none" }} 
+                                                    onClick={(e) => handleRemoveFriend(e, u._id)}
+                                                >
+                                                    Remove
+                                                </button>
+                                            </div>
                                         ) : u.relationship === "request_sent" || sentRequests.includes(String(u._id)) ? (
                                             <button className="action-btn sent" disabled>Sent ✓</button>
                                         ) : u.relationship === "request_received" ? (
@@ -366,6 +418,35 @@ export default function SearchPanel({ onClose }) {
                     </div>
                 )}
             </div>
+
+            {/* Remove Friend Modal */}
+            {friendToRemove && (
+                <div className="profile-cropper-overlay" style={{ zIndex: 100 }}>
+                    <div className="profile-cropper-modal" style={{ maxWidth: 400, padding: 24 }}>
+                        <h3 style={{ color: "var(--text-primary)", marginBottom: 10 }}>Remove Friend</h3>
+                        <p style={{ color: "var(--text-secondary)", marginBottom: 20 }}>
+                            Are you sure you want to remove this friend? You will no longer be able to chat with them unless you add them again.
+                        </p>
+                        <div className="profile-cropper-actions" style={{ marginTop: 20 }}>
+                            <button
+                                className="btn-secondary"
+                                onClick={() => setFriendToRemove(null)}
+                                disabled={removeLoading}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                className="btn-primary"
+                                style={{ background: "var(--danger)", color: "white", border: "none" }}
+                                onClick={handleConfirmRemove}
+                                disabled={removeLoading}
+                            >
+                                {removeLoading ? "Removing..." : "Remove"}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

@@ -20,8 +20,17 @@ export const connectSocket = (userId) => {
     const s = getSocket();
     if (!s.connected) {
         s.connect();
-        s.emit("setup", userId);
     }
+    
+    // Always emit setup when connecting, and set up a listener for reconnections
+    s.emit("setup", userId);
+    
+    // Prevent duplicate listeners
+    s.off("connect");
+    s.on("connect", () => {
+        s.emit("setup", userId);
+    });
+    
     return s;
 };
 

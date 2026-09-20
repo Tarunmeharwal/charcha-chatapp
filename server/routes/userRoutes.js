@@ -9,6 +9,8 @@ const {
     uploadProfileAvatar,
     deleteProfileAvatar,
     getSuggestions,
+    removeFriend,
+    deleteAccount,
 } = require("../controllers/userController");
 const { protect } = require("../middleware/auth");
 const { uploadAvatar } = require("../middleware/avatarUpload");
@@ -21,6 +23,7 @@ router.get("/friends", protect, getFriends);
 router.get("/friend-requests", protect, getFriendRequests);
 router.post("/friend-request/:userId", protect, sendFriendRequest);
 router.put("/friend-request/:requestId", protect, respondFriendRequest);
+router.delete("/friend/:friendId", protect, removeFriend);
 router.put("/profile", protect, updateProfile);
 router.post(
     "/profile/avatar",
@@ -29,5 +32,6 @@ router.post(
     uploadProfileAvatar
 );
 router.delete("/profile/avatar", protect, deleteProfileAvatar);
+router.delete("/account", protect, deleteAccount);
 
 module.exports = router;

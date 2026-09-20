@@ -8,8 +8,9 @@ import SearchPanel from "./SearchPanel";
 import FriendRequestsPanel from "./FriendRequestsPanel";
 import ProfilePanel from "./ProfilePanel";
 import StatusList from "./StatusList";
-import CreateGroupPanel from "./CreateGroupPanel";
 import { getAvatarSrc } from "@/lib/avatar";
+import Image from "next/image";
+import { Camera, Video, File, MessageSquare } from "lucide-react";
 
 export default function Sidebar() {
     const { user, logout } = useAuth();
@@ -24,14 +25,14 @@ export default function Sidebar() {
         typingUsers,
         notifications,
         removeNotification,
+        activeTab,
+        setActiveTab,
     } = useChat();
 
-    const [activeTab, setActiveTab] = useState("chats");
     const [searchQuery, setSearchQuery] = useState("");
     const [showSearch, setShowSearch] = useState(false);
     const [showRequests, setShowRequests] = useState(false);
     const [showProfile, setShowProfile] = useState(false);
-    const [showCreateGroup, setShowCreateGroup] = useState(false);
     const [showMenu, setShowMenu] = useState(false);
     const [liveFriendRequests, setLiveFriendRequests] = useState([]);
     const [openChatItemMenu, setOpenChatItemMenu] = useState(null);
@@ -149,11 +150,11 @@ export default function Sidebar() {
         const type = msg.messageType || (isCloudinary ? (msg.content.includes("/video/") ? "video" : "image") : "text");
 
         let label = msg.content;
-        if (type === "image") label = "📷 Photo";
-        else if (type === "video") label = "🎥 Video";
-        else if (type === "file") label = "📄 File";
+        if (type === "image") label = <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}><Camera size={14} /> Photo</span>;
+        else if (type === "video") label = <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}><Video size={14} /> Video</span>;
+        else if (type === "file") label = <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}><File size={14} /> File</span>;
 
-        return `${senderName}: ${label}`;
+        return <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>{senderName}: {label}</span>;
     };
 
     const isOnline = (chat) => {
@@ -249,17 +250,7 @@ export default function Sidebar() {
                                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
                                     My Profile
                                 </button>
-                                <button
-                                    className="logout-btn"
-                                    onClick={() => {
-                                        setShowMenu(false);
-                                        setShowCreateGroup(true);
-                                    }}
-                                    style={{ borderRadius: "var(--radius-sm)" }}
-                                >
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
-                                    New Group
-                                </button>
+
                                 <button
                                     className="logout-btn"
                                     onClick={() => {
@@ -287,7 +278,10 @@ export default function Sidebar() {
                 </button>
                 <button
                     className={`sidebar-tab ${activeTab === "status" ? "active" : ""}`}
-                    onClick={() => setActiveTab("status")}
+                    onClick={() => {
+                        setActiveTab("status");
+                        setSelectedChat(null);
+                    }}
                 >
                     Status
                 </button>
@@ -313,7 +307,7 @@ export default function Sidebar() {
                 <div className="chat-list">
                     {filteredChats.length === 0 ? (
                         <div className="empty-state">
-                            <span className="empty-icon">💬</span>
+                            <span className="empty-icon flex justify-center"><MessageSquare size={48} className="text-gray-400" /></span>
                             <h4>No chats yet</h4>
                             <p>Search for friends to start chatting!</p>
                         </div>
@@ -390,7 +384,7 @@ export default function Sidebar() {
 
             {/* Panels */}
             {showSearch && <SearchPanel onClose={() => setShowSearch(false)} />}
-            {showCreateGroup && <CreateGroupPanel onClose={() => setShowCreateGroup(false)} />}
+
             {showRequests && (
                 <FriendRequestsPanel
                     onClose={() => setShowRequests(false)}

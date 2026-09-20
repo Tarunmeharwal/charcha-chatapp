@@ -5,6 +5,7 @@ import {
     updateProfileAPI,
     uploadProfileAvatarAPI,
     removeProfileAvatarAPI,
+    deleteAccountAPI,
 } from "@/lib/api";
 import { getAvatarLibrary, getAvatarSrc } from "@/lib/avatar";
 
@@ -31,6 +32,11 @@ export default function ProfilePanel({ onClose }) {
     const fileInputRef = useRef(null);
     const dragRef = useRef(null);
     const [cropState, setCropState] = useState(initialCropState);
+
+    const [showDeleteModal, setShowDeleteModal] = useState(false);
+    const [deleteInput, setDeleteInput] = useState("");
+    const [deleteLoading, setDeleteLoading] = useState(false);
+    const [deleteError, setDeleteError] = useState("");
 
     const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
@@ -287,6 +293,22 @@ export default function ProfilePanel({ onClose }) {
         }
     };
 
+    const handleDeleteAccount = async () => {
+        if (deleteInput !== "delete") {
+            setDeleteError("Please type 'delete' to confirm.");
+            return;
+        }
+        setDeleteLoading(true);
+        setDeleteError("");
+        try {
+            await deleteAccountAPI({ confirmation: deleteInput });
+            logout();
+        } catch (error) {
+            setDeleteError(error.response?.data?.message || "Failed to delete account");
+            setDeleteLoading(false);
+        }
+    };
+
     const cropScale = cropState.baseScale * cropState.zoom;
 
     return (
@@ -438,8 +460,8 @@ export default function ProfilePanel({ onClose }) {
                 )}
             </div>
 
-            {/* Logout */}
-            <div style={{ padding: "20px 16px" }}>
+            {/* Logout and Delete */}
+            <div style={{ padding: "20px 16px", display: "flex", flexDirection: "column", gap: "10px" }}>
                 <button
                     className="logout-btn"
                     style={{
@@ -452,6 +474,20 @@ export default function ProfilePanel({ onClose }) {
                 >
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" /></svg>
                     Log Out
+                </button>
+                <button
+                    className="logout-btn"
+                    style={{
+                        color: "white",
+                        backgroundColor: "var(--danger)",
+                        fontSize: 15,
+                        textAlign: "center",
+                        justifyContent: "center",
+                        border: "none"
+                    }}
+                    onClick={() => setShowDeleteModal(true)}
+                >
+                    Delete Account
                 </button>
             </div>
 
@@ -512,6 +548,63 @@ export default function ProfilePanel({ onClose }) {
                                 disabled={uploadingAvatar}
                             >
                                 {uploadingAvatar ? "Saving..." : "Save Avatar"}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Delete Account Modal */}
+            {showDeleteModal && (
+                <div className="profile-cropper-overlay" style={{ zIndex: 100 }}>
+                    <div className="profile-cropper-modal" style={{ maxWidth: 400, padding: 24 }}>
+                        <h3 style={{ color: "var(--danger)", marginBottom: 10 }}>Delete Account</h3>
+                        <p style={{ color: "var(--text-secondary)", marginBottom: 20 }}>
+                            This action cannot be undone. All your data, messages, and connections will be permanently removed.
+                        </p>
+                        <label style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 8, display: "block" }}>
+                            Type <strong>delete</strong> to confirm:
+                        </label>
+                        <input
+                            type="text"
+                            value={deleteInput}
+                            onChange={(e) => {
+                                setDeleteInput(e.target.value);
+                                setDeleteError("");
+                            }}
+                            placeholder="delete"
+                            style={{
+                                width: "100%",
+                                padding: "10px 12px",
+                                borderRadius: "8px",
+                                border: "1px solid var(--border-color)",
+                                background: "var(--bg-secondary)",
+                                color: "var(--text-primary)",
+                                marginBottom: 10
+                            }}
+                        />
+                        {deleteError && (
+                            <p style={{ color: "var(--danger)", fontSize: 13, marginBottom: 15 }}>{deleteError}</p>
+                        )}
+                        <div className="profile-cropper-actions" style={{ marginTop: 20 }}>
+                            <button
+                                className="btn-secondary"
+                                onClick={() => {
+                                    setShowDeleteModal(false);
+                                    setDeleteInput("");
+                                    setDeleteError("");
+                                }}
+                                disabled={deleteLoading}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                className="btn-primary"
+                                style={{ background: "var(--danger)", color: "white", border: "none" }}
+                                onClick={handleDeleteAccount}
+                                disabled={deleteLoading || deleteInput !== "delete"}
+                            >
+                                {deleteLoading ? "Deleting..." : "Delete Account"}
                             </button>
                         </div>
                     </div>

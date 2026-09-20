@@ -11,6 +11,9 @@ import {
 } from "@/lib/api";
 import { getAvatarSrc } from "@/lib/avatar";
 import { downloadMedia } from "@/lib/download";
+import { getSocket } from "@/lib/socket";
+import Image from "next/image";
+import { Type, Image as ImageIcon, Settings, Plus, Camera, Eye } from "lucide-react";
 
 const STATUS_COLORS = [
     "#075E54", "#128C7E", "#25D366", "#34B7F1",
@@ -41,6 +44,24 @@ export default function StatusList() {
 
     useEffect(() => {
         fetchAllStatuses();
+        
+        const socket = getSocket();
+        socket.on("new_status", () => {
+            fetchAllStatuses();
+        });
+
+        socket.on("new_status", () => {
+            fetchAllStatuses();
+        });
+
+        socket.on("status_deleted", () => {
+            fetchAllStatuses();
+        });
+
+        return () => {
+            socket.off("new_status");
+            socket.off("status_deleted");
+        };
     }, []);
 
     const fetchAllStatuses = async () => {
@@ -72,6 +93,7 @@ export default function StatusList() {
                 setMyStatuses((prev) => [data, ...prev]);
                 closeCreateModal();
                 fetchAllStatuses();
+                getSocket().emit("status_uploaded");
             }
         } catch (error) {
             console.error("Error creating status:", error);
@@ -88,6 +110,7 @@ export default function StatusList() {
                 setMyStatuses((prev) => [data, ...prev]);
                 closeCreateModal();
                 fetchAllStatuses();
+                getSocket().emit("status_uploaded");
             }
         } catch (error) {
             console.error("Error creating media status:", error);
@@ -152,6 +175,8 @@ export default function StatusList() {
                         setViewerIndex((prev) => Math.min(prev, updatedStatuses.length - 1));
                     }
                 }
+                getSocket().emit("status_deleted");
+                fetchAllStatuses();
             }
         } catch (error) {
             console.error("Error deleting status:", error);
@@ -235,7 +260,7 @@ export default function StatusList() {
                             referrerPolicy="no-referrer"
                         />
                         {myStatuses.length === 0 && (
-                            <span className="add-status-icon">+</span>
+                            <span className="add-status-icon flex items-center justify-center"><Plus size={16} strokeWidth={3} /></span>
                         )}
                     </div>
                     <div className="status-info">
@@ -252,32 +277,32 @@ export default function StatusList() {
                 <div style={{ padding: "8px 16px", display: "flex", gap: 8 }}>
                     <button
                         className="btn-primary"
-                        style={{ flex: 1, padding: 10, fontSize: 13 }}
+                        style={{ flex: 1, padding: 10, fontSize: 13, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
                         onClick={() => {
                             setCreateType("text");
                             setShowCreateModal(true);
                         }}
                     >
-                        ✏️ Text
+                        <Type size={16} /> Text
                     </button>
                     <button
                         className="btn-secondary"
-                        style={{ flex: 1, padding: 10, fontSize: 13 }}
+                        style={{ flex: 1, padding: 10, fontSize: 13, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
                         onClick={() => {
                             setCreateType("media");
                             setShowCreateModal(true);
                         }}
                     >
-                        📷 Media
+                        <ImageIcon size={16} /> Media
                     </button>
                     {myStatuses.length > 0 && (
                         <button
                             className="btn-secondary"
-                            style={{ padding: "10px 14px", fontSize: 13 }}
+                            style={{ padding: "10px 14px", fontSize: 13, display: "flex", alignItems: "center", justifyContent: "center" }}
                             onClick={() => setShowMyStatusDetails(true)}
                             title="Manage my statuses"
                         >
-                            ⚙️
+                            <Settings size={18} />
                         </button>
                     )}
                 </div>
@@ -319,7 +344,7 @@ export default function StatusList() {
                 {otherStatuses.length === 0 &&
                     myStatuses.length === 0 && (
                         <div className="empty-state">
-                            <span className="empty-icon">📷</span>
+                            <span className="empty-icon flex justify-center"><Camera size={40} className="text-gray-400" /></span>
                             <h4>No status updates</h4>
                             <p>Add a status or wait for friends to post!</p>
                         </div>
@@ -336,12 +361,12 @@ export default function StatusList() {
                                 ✕
                             </button>
                         </div>
-                        <div className="modal-body">
+                        <div className="modal-body" style={{ padding: createType === "text" ? "12px 24px" : "24px" }}>
                             {createType === "text" ? (
                                 <>
                                     <div
                                         className="status-preview"
-                                        style={{ backgroundColor: selectedColor }}
+                                        style={{ backgroundColor: selectedColor, marginBottom: "12px" }}
                                     >
                                         <textarea
                                             className="status-text-input"
@@ -353,10 +378,7 @@ export default function StatusList() {
                                         />
                                     </div>
 
-                                    <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 12 }}>
-                                        Background Color
-                                    </p>
-                                    <div className="color-picker">
+                                    <div className="color-picker" style={{ marginBottom: "0" }}>
                                         {STATUS_COLORS.map((color) => (
                                             <div
                                                 key={color}
@@ -388,21 +410,23 @@ export default function StatusList() {
                                             }}
                                             onClick={() => mediaInputRef.current?.click()}
                                         >
-                                            <p style={{ fontSize: 40, marginBottom: 10 }}>📷</p>
+                                            <p style={{ display: "flex", justifyContent: "center", marginBottom: 10 }}><Camera size={48} className="text-gray-400" /></p>
                                             <p style={{ color: "var(--text-secondary)" }}>
                                                 Click to select an image or video
                                             </p>
                                         </div>
                                     ) : (
-                                        <div style={{ marginBottom: 16, textAlign: "center" }}>
+                                        <div style={{ marginBottom: 16, display: "flex", flexDirection: "column", alignItems: "center", width: "100%" }}>
                                             {mediaFile?.type?.startsWith("video/") ? (
                                                 <video
                                                     src={mediaPreview}
                                                     controls
                                                     style={{
                                                         maxWidth: "100%",
-                                                        maxHeight: 250,
+                                                        height: "min(320px, 50vh)",
                                                         borderRadius: "var(--radius-md)",
+                                                        objectFit: "contain",
+                                                        backgroundColor: "#000",
                                                     }}
                                                 />
                                             ) : (
@@ -411,9 +435,10 @@ export default function StatusList() {
                                                     alt="Status preview"
                                                     style={{
                                                         maxWidth: "100%",
-                                                        maxHeight: 250,
+                                                        height: "min(320px, 50vh)",
                                                         borderRadius: "var(--radius-md)",
-                                                        objectFit: "cover",
+                                                        objectFit: "contain",
+                                                        backgroundColor: "#000",
                                                     }}
                                                 />
                                             )}
@@ -472,7 +497,17 @@ export default function StatusList() {
                     className="status-viewer-overlay"
                     onClick={() => setShowViewer(null)}
                 >
-                    {/* Progress bars */}
+                    <div 
+                        className="status-viewer-wrapper" 
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                            backgroundColor:
+                                showViewer.statuses[viewerIndex]?.type === "text" 
+                                    ? showViewer.statuses[viewerIndex]?.backgroundColor || "#075E54"
+                                    : "#000",
+                        }}
+                    >
+                        {/* Progress bars */}
                     <div className="status-viewer-progress">
                         {showViewer.statuses.map((_, i) => (
                             <div key={i} className="progress-bar">
@@ -512,69 +547,60 @@ export default function StatusList() {
                                 {formatTime(showViewer.statuses[viewerIndex]?.createdAt)} • {formatExpiresIn(showViewer.statuses[viewerIndex]?.expiresAt)}
                             </p>
                         </div>
-                        {showViewer.user?._id === user?._id && (
-                            <div style={{ marginLeft: "auto", position: "relative" }}>
-                                <button
-                                    className="status-options-btn"
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        setShowStatusOptions((prev) => !prev);
-                                    }}
-                                >
-                                    ⋮
-                                </button>
-                                {showStatusOptions && (
-                                    <div className="status-options-menu">
-                                        <button
-                                            className="status-options-item delete"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                handleDeleteStatus(
-                                                    showViewer.statuses[viewerIndex]._id
-                                                );
-                                                setShowStatusOptions(false);
-                                            }}
-                                        >
-                                            Delete status
-                                        </button>
-                                    </div>
-                                )}
-                            </div>
-                        )}
-
-                        <div className="status-viewer-actions" style={{ marginLeft: showViewer.user?._id === user?._id ? "0" : "auto" }}>
-                            {(currentViewedStatus?.type === "image" || currentViewedStatus?.type === "video") && (
-                                <button
-                                    className="status-download-btn"
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        downloadMedia(currentViewedStatus.mediaUrl, `${currentViewedStatus.type}_${currentViewedStatus._id}`);
-                                    }}
-                                    title={`Download ${currentViewedStatus.type}`}
-                                >
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
-                                </button>
+                        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 16 }}>
+                            {showViewer.user?._id === user?._id && (
+                                <div style={{ position: "relative" }}>
+                                    <button
+                                        className="status-options-btn"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            setShowStatusOptions((prev) => !prev);
+                                        }}
+                                    >
+                                        ⋮
+                                    </button>
+                                    {showStatusOptions && (
+                                        <div className="status-options-menu">
+                                            <button
+                                                className="status-options-item delete"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleDeleteStatus(
+                                                        showViewer.statuses[viewerIndex]._id
+                                                    );
+                                                    setShowStatusOptions(false);
+                                                }}
+                                            >
+                                                Delete status
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
                             )}
+
+
+                            <button
+                                className="close-btn"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    setShowViewer(null);
+                                }}
+                                style={{
+                                    background: "none",
+                                    border: "none",
+                                    color: "#fff",
+                                    fontSize: 24,
+                                    cursor: "pointer",
+                                }}
+                            >
+                                ✕
+                            </button>
                         </div>
-                        <button
-                            className="close-btn"
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                setShowViewer(null);
-                            }}
-                        >
-                            ✕
-                        </button>
                     </div>
 
                     {/* Content */}
                     <div
-                        className="status-viewer-content text-status"
-                        style={{
-                            backgroundColor:
-                                showViewer.statuses[viewerIndex]?.backgroundColor || "#075E54",
-                        }}
-                        onClick={(e) => e.stopPropagation()}
+                        className={`status-viewer-content ${showViewer.statuses[viewerIndex]?.type === "text" ? "text-status" : ""}`}
                     >
                         {showViewer.statuses[viewerIndex]?.type === "image" &&
                             showViewer.statuses[viewerIndex]?.mediaUrl ? (
@@ -665,7 +691,7 @@ export default function StatusList() {
                                 className="status-seen-toggle"
                                 onClick={() => setShowSeenList((prev) => !prev)}
                             >
-                                <span>👁 Seen by {currentViewers.length}</span>
+                                <span style={{ display: "flex", alignItems: "center", gap: 6 }}><Eye size={16} /> Seen by {currentViewers.length}</span>
                                 <span>{showSeenList ? "▾" : "▴"}</span>
                             </button>
                             {showSeenList && (
@@ -684,6 +710,7 @@ export default function StatusList() {
                             )}
                         </div>
                     )}
+                    </div>
                 </div>
             )}
 
@@ -739,8 +766,8 @@ export default function StatusList() {
                                             )}
                                         </div>
                                     )}
-                                    <p style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 8, }}>
-                                        {formatTime(status.createdAt)} • {formatExpiresIn(status.expiresAt)} • 👁 Seen by {status.viewedBy?.length || 0}
+                                    <p style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+                                        {formatTime(status.createdAt)} • {formatExpiresIn(status.expiresAt)} • <Eye size={12} /> Seen by {status.viewedBy?.length || 0}
                                     </p>
                                     {(status.viewedBy || []).length > 0 && (
                                         <p style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 8, }}>
