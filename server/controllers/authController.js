@@ -1,90 +1,11 @@
 const User = require("../models/User");
 const jwt = require("jsonwebtoken");
+const { OAuth2Client } = require('google-auth-library');
+
+const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 const generateToken = (id) => {
     return jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: "30d" });
-};
-
-// @desc    Register a new user
-// @route   POST /api/auth/signup
-const signup = async (req, res) => {
-    try {
-        const { username, email, password } = req.body;
-
-        if (!username || !email || !password) {
-            return res.status(400).json({ message: "Please fill all fields" });
-        }
-
-        const userExists = await User.findOne({ $or: [{ email }, { username }] });
-        if (userExists) {
-            const field = userExists.email === email.toLowerCase() ? "Email" : "Username";
-            return res.status(400).json({ message: `${field} already taken` });
-        }
-
-        const user = await User.create({ username, email, password });
-        const token = generateToken(user._id);
-
-        res.cookie("charcha_token", token, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === "production",
-            sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
-            maxAge: 30 * 24 * 60 * 60 * 1000,
-        });
-
-        res.status(201).json({
-            _id: user._id,
-            username: user.username,
-            email: user.email,
-            profilePic: user.profilePic,
-            profilePicPublicId: user.profilePicPublicId,
-            about: user.about,
-            token, // Keep sending token for backward compatibility if needed
-        });
-    } catch (error) {
-        res.status(500).json({ message: error.message });
-    }
-};
-
-// @desc    Login user
-// @route   POST /api/auth/login
-const login = async (req, res) => {
-    try {
-        const { email, password } = req.body;
-
-        if (!email || !password) {
-            return res.status(400).json({ message: "Please fill all fields" });
-        }
-
-        const user = await User.findOne({ email: email.toLowerCase() });
-
-        if (user && (await user.matchPassword(password))) {
-            user.isOnline = true;
-            await user.save();
-
-            const token = generateToken(user._id);
-
-            res.cookie("charcha_token", token, {
-                httpOnly: true,
-                secure: process.env.NODE_ENV === "production",
-                sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
-                maxAge: 30 * 24 * 60 * 60 * 1000,
-            });
-
-            res.json({
-                _id: user._id,
-                username: user.username,
-                email: user.email,
-                profilePic: user.profilePic,
-                profilePicPublicId: user.profilePicPublicId,
-                about: user.about,
-                token,
-            });
-        } else {
-            res.status(401).json({ message: "Invalid email or password" });
-        }
-    } catch (error) {
-        res.status(500).json({ message: error.message });
-    }
 };
 
 // @desc    Get current user profile
@@ -138,4 +59,77 @@ const checkUsername = async (req, res) => {
     }
 };
 
-module.exports = { signup, login, getMe, logout, checkUsername };
+// @desc    Google Login
+// @route   POST /api/auth/google
+const googleLogin = async (req, res) => {
+    try {
+        const { access_token } = req.body;
+        if (!access_token) {
+            return res.status(400).json({ message: "Google access_token is required" });
+        }
+
+        const response = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+            headers: { Authorization: `Bearer ${access_token}` }
+        });
+
+        if (!response.ok) {
+            return res.status(400).json({ message: "Invalid Google access token" });
+        }
+
+        const payload = await response.json();
+        const { sub: googleId, email, name, picture } = payload;
+
+        let user = await User.findOne({ email: email.toLowerCase() });
+
+        if (user) {
+            // User exists, log them in
+            user.isOnline = true;
+            if (!user.googleId) {
+                user.googleId = googleId;
+                user.authProvider = 'google';
+            }
+            await user.save();
+        } else {
+            // Generate a unique username
+            let baseUsername = email.split('@')[0].replace(/[^a-zA-Z0-9]/g, '');
+            let username = baseUsername;
+            let counter = 1;
+            while (await User.findOne({ username })) {
+                username = `${baseUsername}${counter}`;
+                counter++;
+            }
+
+            user = await User.create({
+                username,
+                email: email.toLowerCase(),
+                profilePic: picture,
+                authProvider: 'google',
+                googleId,
+            });
+        }
+
+        const token = generateToken(user._id);
+
+        res.cookie("charcha_token", token, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === "production",
+            sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+            maxAge: 30 * 24 * 60 * 60 * 1000,
+        });
+
+        res.status(200).json({
+            _id: user._id,
+            username: user.username,
+            email: user.email,
+            profilePic: user.profilePic,
+            profilePicPublicId: user.profilePicPublicId,
+            about: user.about,
+            token,
+        });
+    } catch (error) {
+        console.error("Google login error:", error);
+        res.status(500).json({ message: "Google authentication failed" });
+    }
+};
+
+module.exports = { getMe, logout, checkUsername, googleLogin };

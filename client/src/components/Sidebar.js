@@ -154,7 +154,14 @@ export default function Sidebar() {
         else if (type === "video") label = <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}><Video size={14} /> Video</span>;
         else if (type === "file") label = <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}><File size={14} /> File</span>;
 
-        return <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>{senderName}: {label}</span>;
+        let prefix = "";
+        if (chat.isGroupChat) {
+            prefix = `${senderName}: `;
+        } else if (msg.sender?._id === user?._id) {
+            prefix = "You: ";
+        }
+
+        return <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>{prefix}{label}</span>;
     };
 
     const isOnline = (chat) => {

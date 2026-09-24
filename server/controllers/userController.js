@@ -205,8 +205,22 @@ const getFriends = async (req, res) => {
 // @route   PUT /api/users/profile
 const updateProfile = async (req, res) => {
     try {
-        const { about, profilePic } = req.body;
+        const { about, profilePic, username } = req.body;
         const user = await User.findById(req.user._id);
+
+        if (username !== undefined) {
+            const newUsername = username.toLowerCase().trim();
+            if (newUsername.length < 3) {
+                return res.status(400).json({ message: "Username must be at least 3 characters" });
+            }
+            if (newUsername !== user.username) {
+                const existing = await User.findOne({ username: newUsername });
+                if (existing) {
+                    return res.status(400).json({ message: "Username already taken" });
+                }
+                user.username = newUsername;
+            }
+        }
 
         if (about !== undefined) user.about = about;
         if (profilePic !== undefined) {

@@ -52,6 +52,8 @@ export default function ChatWindow({ isMobile }) {
     const [filePreview, setFilePreview] = useState(null);
     const [uploadingMedia, setUploadingMedia] = useState(false);
     const [activeEmojiPickerMsgId, setActiveEmojiPickerMsgId] = useState(null);
+    const [isSearching, setIsSearching] = useState(false);
+    const [searchQuery, setSearchQuery] = useState("");
     const socket = getSocket();
     const longPressTimer = useRef(null);
     const messagesEndRef = useRef(null);
@@ -288,12 +290,20 @@ export default function ChatWindow({ isMobile }) {
         });
     };
 
-    const shouldShowDateDivider = (index) => {
-        if (index === 0) return true;
-        const current = new Date(messages[index].createdAt).toDateString();
-        const previous = new Date(messages[index - 1].createdAt).toDateString();
+    const shouldShowDateDivider = (msg, prevMsg) => {
+        if (!prevMsg) return true;
+        const current = new Date(msg.createdAt).toDateString();
+        const previous = new Date(prevMsg.createdAt).toDateString();
         return current !== previous;
     };
+
+    const filteredMessages = messages.filter(msg => {
+        if (!isSearching || !searchQuery.trim()) return true;
+        if (msg.messageType === "image" || msg.messageType === "video") return false;
+        const isCloudinary = msg.content && typeof msg.content === 'string' && msg.content.includes("cloudinary.com");
+        if (isCloudinary) return false;
+        return msg.content?.toLowerCase().includes(searchQuery.toLowerCase());
+    });
 
     const getReadStatus = (message) => {
         if (message.sender?._id !== user._id) return null;
@@ -523,14 +533,38 @@ export default function ChatWindow({ isMobile }) {
         <div className="chat-window">
             {/* Chat Header */}
             <div className="chat-header">
-                {isMobile && (
-                    <button
-                        className="icon-btn back-mobile-btn"
-                        onClick={() => window.history.back()}
-                    >
-                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" /></svg>
-                    </button>
-                )}
+                {isSearching ? (
+                    <div style={{ display: "flex", alignItems: "center", width: "100%", gap: "10px" }}>
+                        <button className="icon-btn" onClick={() => { setIsSearching(false); setSearchQuery(""); }}>
+                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" /></svg>
+                        </button>
+                        <input 
+                            type="text" 
+                            placeholder="Search in chat..." 
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            autoFocus
+                            style={{ 
+                                flex: 1, 
+                                padding: "8px 16px", 
+                                borderRadius: "20px", 
+                                border: "1px solid var(--border-color)", 
+                                background: "var(--bg-secondary)", 
+                                color: "var(--text-primary)",
+                                outline: "none"
+                            }}
+                        />
+                    </div>
+                ) : (
+                    <>
+                        {isMobile && (
+                            <button
+                                className="icon-btn back-mobile-btn"
+                                onClick={() => window.history.back()}
+                            >
+                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" /></svg>
+                            </button>
+                        )}
 
                 <div
                     className="chat-avatar"
@@ -589,6 +623,7 @@ export default function ChatWindow({ isMobile }) {
                                     setShowChatDropdown(false);
                                     setShowEmojiPicker(false);
                                     setActiveMessageMenu(null);
+                                    setIsSearching(true);
                                 }}
                             >
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
@@ -605,6 +640,8 @@ export default function ChatWindow({ isMobile }) {
                         </div>
                     )}
                 </div>
+                </>
+                )}
             </div>
 
             {/* Messages Area */}
@@ -615,9 +652,9 @@ export default function ChatWindow({ isMobile }) {
                     </div>
                 ) : (
                     <>
-                        {messages.map((msg, index) => (
+                        {filteredMessages.map((msg, index) => (
                             <div key={msg._id || index}>
-                                {shouldShowDateDivider(index) && (
+                                {shouldShowDateDivider(msg, filteredMessages[index - 1]) && (
                                     <div className="message-date-divider">
                                         <span>{formatDateDivider(msg.createdAt)}</span>
                                     </div>

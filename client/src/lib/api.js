@@ -12,6 +12,16 @@ const getHeaders = () => {
 };
 
 // Auth APIs
+export const sendOtpAPI = async (data) => {
+    const res = await fetch(`${API_URL}/auth/send-otp`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+        credentials: "include",
+    });
+    return res.json();
+};
+
 export const signupAPI = async (data) => {
     const res = await fetch(`${API_URL}/auth/signup`, {
         method: "POST",
@@ -32,6 +42,16 @@ export const loginAPI = async (data) => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
+        credentials: "include",
+    });
+    return res.json();
+};
+
+export const googleLoginAPI = async (access_token) => {
+    const res = await fetch(`${API_URL}/auth/google`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ access_token }),
         credentials: "include",
     });
     return res.json();

@@ -26,6 +26,9 @@ export default function ProfilePanel({ onClose }) {
     const { user, setUser, logout } = useAuth();
     const [editingAbout, setEditingAbout] = useState(false);
     const [aboutText, setAboutText] = useState(user?.about || "");
+    const [editingUsername, setEditingUsername] = useState(false);
+    const [usernameText, setUsernameText] = useState(user?.username || "");
+    const [usernameError, setUsernameError] = useState("");
     const [uploadingAvatar, setUploadingAvatar] = useState(false);
     const [avatarError, setAvatarError] = useState("");
     const [avatarCategory, setAvatarCategory] = useState("all");
@@ -92,6 +95,22 @@ export default function ProfilePanel({ onClose }) {
             }
         } catch (error) {
             console.error("Error updating profile:", error);
+        }
+    };
+
+    const handleSaveUsername = async () => {
+        setUsernameError("");
+        try {
+            const data = await updateProfileAPI({ username: usernameText.trim() });
+            if (data._id) {
+                setUser((prev) => ({ ...prev, username: data.username }));
+                setEditingUsername(false);
+            } else {
+                setUsernameError(data.message || "Failed to update username");
+            }
+        } catch (error) {
+            console.error("Error updating profile:", error);
+            setUsernameError("Something went wrong");
         }
     };
 
@@ -413,7 +432,47 @@ export default function ProfilePanel({ onClose }) {
             {/* Username */}
             <div className="profile-section">
                 <label>Your Username</label>
-                <p>@{user?.username}</p>
+                {editingUsername ? (
+                    <div>
+                        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                            <div style={{ display: "flex", alignItems: "center", background: "var(--bg-secondary)", borderRadius: 12, paddingLeft: 12, flex: 1, border: "1px solid var(--border-color)" }}>
+                                <span style={{ color: "var(--text-secondary)" }}>@</span>
+                                <input
+                                    type="text"
+                                    value={usernameText}
+                                    onChange={(e) => {
+                                        setUsernameText(e.target.value);
+                                        setUsernameError("");
+                                    }}
+                                    maxLength={20}
+                                    autoFocus
+                                    style={{ background: "transparent", border: "none", outline: "none", padding: "12px 12px 12px 4px", color: "var(--text-primary)", flex: 1 }}
+                                />
+                            </div>
+                            <button className="btn-primary" onClick={handleSaveUsername}>
+                                Save
+                            </button>
+                            <button
+                                className="btn-secondary"
+                                onClick={() => {
+                                    setEditingUsername(false);
+                                    setUsernameText(user?.username || "");
+                                    setUsernameError("");
+                                }}
+                            >
+                                Cancel
+                            </button>
+                        </div>
+                        {usernameError && <p className="profile-avatar-error" style={{ marginTop: 8 }}>{usernameError}</p>}
+                    </div>
+                ) : (
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <p>@{user?.username}</p>
+                        <button className="btn-secondary" onClick={() => { setEditingUsername(true); setUsernameText(user?.username || ""); }}>
+                            Edit
+                        </button>
+                    </div>
+                )}
             </div>
 
             {/* Email */}
